@@ -2,3 +2,7 @@ node_modules
 dist
 .DS_Store
 *.log
+public/assets_source/
+public/models/adventurers/
+public/models/characters/
+public/models/skeletons/

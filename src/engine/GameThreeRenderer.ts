@@ -275,8 +275,8 @@ export class GameThreeRenderer {
 
   private setupGlbInstancedModels(): void {
     this.glbPool = new GlbInstancedPool(this.gltfLoader, this.scene);
-    const advBase = '/models/adventurers/addons/kaykit_character_pack_adventures/Characters/gltf';
-    const skelBase = '/models/skeletons/addons/kaykit_character_pack_skeletons/Characters/gltf';
+    const advBase = '/models/heroes';
+    const skelBase = '/models/enemies';
 
     const specs: GlbModelSpec[] = [
       {
