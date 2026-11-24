@@ -1,12 +1,31 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 
-const dataDir = path.resolve(process.cwd(), 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+function resolveWritableDataDir(): string {
+  const candidates = [
+    process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : null,
+    process.env.VERCEL || process.env.VERCEL_ENV ? path.join(os.tmpdir(), 'tower-clash-data') : null,
+    path.resolve(process.cwd(), 'data'),
+    path.join(os.tmpdir(), 'tower-clash-data'),
+  ].filter((p): p is string => Boolean(p));
+
+  for (const dir of candidates) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.accessSync(dir, fs.constants.W_OK);
+      return dir;
+    } catch {
+      // Try next directory (e.g. read-only /var/task on serverless)
+    }
+  }
+  return os.tmpdir();
 }
 
+const dataDir = resolveWritableDataDir();
 const dbPath = path.join(dataDir, 'dsa_defense.sqlite');
 export const db = new DatabaseSync(dbPath);
 

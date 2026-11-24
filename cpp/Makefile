@@ -1,4 +1,4 @@
-CXX := clang++
+CXX ?= clang++
 CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -Iinclude
 
 all: build/dsa_engine build/test_dsa

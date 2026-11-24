@@ -3,15 +3,26 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import { db } from '../db.ts';
+import { runTsServerBenchmark } from '../benchmarkFallback.ts';
 
 export const apiRouter = Router();
 
 const CPP_BIN = path.resolve(process.cwd(), 'cpp/build/dsa_engine');
 
+function canExecuteCppBinary(): boolean {
+  if (!fs.existsSync(CPP_BIN)) return false;
+  try {
+    fs.accessSync(CPP_BIN, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function runCppBinary(args: string[]): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    if (!fs.existsSync(CPP_BIN)) {
-      reject(new Error('C++ engine binary not built. Run `make -C cpp`.'));
+    if (!canExecuteCppBinary()) {
+      reject(new Error('C++ engine binary not available. Run `make -C cpp`.'));
       return;
     }
     execFile(CPP_BIN, args, { timeout: 20000 }, (err, stdout, stderr) => {
@@ -29,7 +40,11 @@ function runCppBinary(args: string[]): Promise<Record<string, unknown>> {
 }
 
 apiRouter.get('/health', (_req, res) => {
-  res.json({ ok: true, cppReady: fs.existsSync(CPP_BIN) });
+  res.json({
+    ok: true,
+    cppReady: canExecuteCppBinary(),
+    runtime: process.env.VERCEL ? 'vercel' : 'node',
+  });
 });
 
 apiRouter.get('/profile', (_req, res) => {
@@ -165,7 +180,12 @@ apiRouter.get('/benchmarks/run', async (req, res) => {
         ? [modeMap[category], String(Math.min(size, 500))]
         : [modeMap[category], String(size), safePattern];
 
-    const data = await runCppBinary(args);
+    let data: Record<string, unknown>;
+    try {
+      data = await runCppBinary(args);
+    } catch {
+      data = runTsServerBenchmark(category, size, safePattern, trials);
+    }
 
     db.prepare(`
       INSERT INTO benchmark_runs (engine, category, pattern, input_size, results_json)

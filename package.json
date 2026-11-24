@@ -4,12 +4,16 @@
   "private": true,
   "description": "Tower Clash — 3D Tower Defense Strategy Game",
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "concurrently -k \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "vite build && npm run build:cpp",
     "build:cpp": "make -C cpp",
+    "build:vercel": "vite build && (rm -f cpp/build/dsa_engine cpp/build/test_dsa && (command -v g++ >/dev/null 2>&1 && make -C cpp CXX=g++ || (command -v clang++ >/dev/null 2>&1 && make -C cpp CXX=clang++)) || true)",
     "test": "vitest run && npm run test:cpp",
     "test:cpp": "make -C cpp test",
     "start": "NODE_ENV=production tsx server/index.ts"
