@@ -69,10 +69,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               onChange={(e) => setDraft({ ...draft, defaultDifficulty: e.target.value as DifficultyLevel })}
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
             >
-              <option value="recruit">Casual / Peasant (0.75x HP, 0.9x Speed, 250 Gold)</option>
-              <option value="standard">Medium / Warrior (1.0x HP, 1.0x Speed, 210 Gold)</option>
-              <option value="veteran">Hard / Knight (1.35x HP, 1.12x Speed, -10% Gold)</option>
-              <option value="nightmare">Extreme / Overlord (1.65x HP, 1.18x Speed, -15% Gold)</option>
+              <option value="recruit">Casual / Peasant (0.75x HP, 0.9x Speed, 270 Gold)</option>
+              <option value="standard">Medium / Warrior (1.0x HP, 1.0x Speed, 235 Gold)</option>
+              <option value="veteran">Hard / Knight (1.3x HP, 1.1x Speed, -8% Gold)</option>
+              <option value="nightmare">Extreme / Overlord (1.55x HP, 1.15x Speed, -12% Gold)</option>
             </select>
           </div>
 

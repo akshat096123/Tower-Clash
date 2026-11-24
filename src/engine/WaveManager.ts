@@ -28,31 +28,29 @@ export class WaveManager {
     const waveConfig: EnemySpawnConfig = { waveNumber, difficulty };
 
     const baseCount = Math.max(
-      8,
-      Math.round((7 + waveNumber * 2.0) * preset.countMult)
+      7,
+      Math.round((6 + waveNumber * 1.9) * preset.countMult)
     );
-    const isBossWave = waveNumber % 5 === 0 || waveNumber === totalWaves;
+    const isBossWave = waveNumber === 5 || waveNumber === 10 || waveNumber === totalWaves;
 
     for (let i = 0; i < baseCount; i++) {
       let type: EnemyType = 'normal';
 
-      if (waveNumber === 1 && i >= 3 && i % 4 === 3) type = 'fast';
+      if (waveNumber === 1 && i === 6) type = 'fast';
       if (waveNumber >= 2 && i % 4 === 1) type = 'fast';
-      if (waveNumber === 2 && i === baseCount - 2) type = 'armored';
       if (waveNumber >= 3 && i % 6 === 2) type = 'armored';
-      if (waveNumber === 3 && i === baseCount - 3) type = 'flying';
-      if (waveNumber >= 4 && i % 7 === 3) type = 'heavy';
-      if (waveNumber >= 4 && i % 8 === 4) type = 'witch';
-      if (waveNumber >= 5 && i % 9 === 5) type = 'flying';
+      if (waveNumber >= 4 && i % 8 === 3) type = 'flying';
+      if (waveNumber >= 5 && i % 7 === 4) type = 'heavy';
+      if (waveNumber >= 5 && i % 8 === 5) type = 'witch';
 
       // Tight Swarmling pack bursts on wave 2+
       if (waveNumber >= 2 && i > 0 && i % 5 === 0) {
-        const packSize = Math.min(4, 2 + Math.floor(waveNumber / 4));
+        const packSize = Math.min(4, 2 + Math.floor(waveNumber / 5));
         for (let p = 0; p < packSize; p++) {
           this.spawnQueue.enqueue({
             type: 'swarm',
             waveConfig,
-            delayAfterPrev: p === 0 ? 0.55 : 0.26,
+            delayAfterPrev: p === 0 ? 0.6 : 0.28,
           });
         }
         continue;
@@ -60,24 +58,24 @@ export class WaveManager {
 
       let delay =
         type === 'fast'
-          ? 0.52
+          ? 0.58
           : type === 'heavy' || type === 'armored'
-          ? 0.92
+          ? 0.98
           : type === 'witch'
-          ? 0.82
-          : 0.72;
-      if (difficulty === 'veteran') delay *= 0.9;
-      else if (difficulty === 'nightmare') delay *= 0.82;
+          ? 0.88
+          : 0.78;
+      if (difficulty === 'veteran') delay *= 0.92;
+      else if (difficulty === 'nightmare') delay *= 0.85;
 
       this.spawnQueue.enqueue({ type, waveConfig, delayAfterPrev: delay });
     }
 
     // Mini-boss Ancient Wyvern on mid/late milestones
-    if (waveNumber >= 5 && (waveNumber % 5 === 0 || waveNumber >= totalWaves - 1)) {
+    if (waveNumber === 6 || waveNumber === totalWaves) {
       this.spawnQueue.enqueue({
         type: 'dragon',
         waveConfig,
-        delayAfterPrev: 1.25,
+        delayAfterPrev: 1.4,
       });
     }
 

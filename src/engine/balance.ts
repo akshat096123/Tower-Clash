@@ -19,8 +19,8 @@ export const DIFFICULTY_PRESETS: Record<DifficultyLevel, DifficultyPreset> = {
     subtitle: 'Casual • 0.75x HP • 0.9x Speed',
     hpMult: 0.75,
     speedMult: 0.9,
-    startingGold: 250, // +19% vs Medium 210
-    rewardMult: 1.0,
+    startingGold: 270,
+    rewardMult: 1.05,
     startHealth: 100,
     countMult: 0.9,
   },
@@ -30,7 +30,7 @@ export const DIFFICULTY_PRESETS: Record<DifficultyLevel, DifficultyPreset> = {
     subtitle: 'Medium • 1.0x HP • 1.0x Speed',
     hpMult: 1.0,
     speedMult: 1.0,
-    startingGold: 210,
+    startingGold: 235,
     rewardMult: 1.0,
     startHealth: 100,
     countMult: 1.0,
@@ -38,30 +38,30 @@ export const DIFFICULTY_PRESETS: Record<DifficultyLevel, DifficultyPreset> = {
   veteran: {
     id: 'veteran',
     label: 'Knight',
-    subtitle: 'Hard • 1.35x HP • 1.12x Speed • -10% Gold',
-    hpMult: 1.35,
-    speedMult: 1.12,
-    startingGold: 190,
-    rewardMult: 0.9,
+    subtitle: 'Hard • 1.3x HP • 1.1x Speed • -8% Gold',
+    hpMult: 1.3,
+    speedMult: 1.1,
+    startingGold: 215,
+    rewardMult: 0.92,
     startHealth: 100,
-    countMult: 1.1,
+    countMult: 1.08,
   },
   nightmare: {
     id: 'nightmare',
     label: 'Overlord',
-    subtitle: 'Extreme • 1.65x HP • 1.18x Speed • -15% Gold',
-    hpMult: 1.65,
-    speedMult: 1.18,
-    startingGold: 175,
-    rewardMult: 0.85,
+    subtitle: 'Extreme • 1.55x HP • 1.15x Speed • -12% Gold',
+    hpMult: 1.55,
+    speedMult: 1.15,
+    startingGold: 195,
+    rewardMult: 0.88,
     startHealth: 85,
-    countMult: 1.2,
+    countMult: 1.15,
   },
 };
 
-export const BASE_BOT_HP = 138;
-export const BASE_BOT_SPEED = 76;
-export const WAVE_HP_EXPONENT = 1.135;
+export const BASE_BOT_HP = 126;
+export const BASE_BOT_SPEED = 72;
+export const WAVE_HP_EXPONENT = 1.115;
 
 export interface EnemyArchetypeSpec {
   type: EnemyType;
@@ -236,8 +236,8 @@ export const ECONOMY_BALANCE = {
   earlyWaveBonusGold: 15,
   crystalDividendGold: 15,
   crystalDividendIntervalSec: 12,
-  waveClearBaseGold: 38,
-  waveClearPerWaveGold: 7,
+  waveClearBaseGold: 42,
+  waveClearPerWaveGold: 8,
 } as const;
 
 export const TOWER_BALANCE_ORDER: TowerType[] = ['basic', 'rapid', 'slow', 'sniper', 'splash', 'laser'];
