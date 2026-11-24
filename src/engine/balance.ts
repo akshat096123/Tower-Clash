@@ -19,7 +19,7 @@ export const DIFFICULTY_PRESETS: Record<DifficultyLevel, DifficultyPreset> = {
     subtitle: 'Casual • 0.75x HP • 0.9x Speed',
     hpMult: 0.75,
     speedMult: 0.9,
-    startingGold: 300, // +15.4% vs Standard 260
+    startingGold: 250, // +19% vs Medium 210
     rewardMult: 1.0,
     startHealth: 100,
     countMult: 0.9,
@@ -27,10 +27,10 @@ export const DIFFICULTY_PRESETS: Record<DifficultyLevel, DifficultyPreset> = {
   standard: {
     id: 'standard',
     label: 'Warrior',
-    subtitle: 'Standard • 1.0x HP • 1.0x Speed',
+    subtitle: 'Medium • 1.0x HP • 1.0x Speed',
     hpMult: 1.0,
     speedMult: 1.0,
-    startingGold: 260,
+    startingGold: 210,
     rewardMult: 1.0,
     startHealth: 100,
     countMult: 1.0,
@@ -41,7 +41,7 @@ export const DIFFICULTY_PRESETS: Record<DifficultyLevel, DifficultyPreset> = {
     subtitle: 'Hard • 1.35x HP • 1.12x Speed • -10% Gold',
     hpMult: 1.35,
     speedMult: 1.12,
-    startingGold: 240,
+    startingGold: 190,
     rewardMult: 0.9,
     startHealth: 100,
     countMult: 1.1,
@@ -52,16 +52,16 @@ export const DIFFICULTY_PRESETS: Record<DifficultyLevel, DifficultyPreset> = {
     subtitle: 'Extreme • 1.65x HP • 1.18x Speed • -15% Gold',
     hpMult: 1.65,
     speedMult: 1.18,
-    startingGold: 220,
+    startingGold: 175,
     rewardMult: 0.85,
     startHealth: 85,
     countMult: 1.2,
   },
 };
 
-export const BASE_BOT_HP = 120;
-export const BASE_BOT_SPEED = 74;
-export const WAVE_HP_EXPONENT = 1.16;
+export const BASE_BOT_HP = 138;
+export const BASE_BOT_SPEED = 76;
+export const WAVE_HP_EXPONENT = 1.135;
 
 export interface EnemyArchetypeSpec {
   type: EnemyType;
@@ -236,7 +236,7 @@ export const ECONOMY_BALANCE = {
   earlyWaveBonusGold: 15,
   crystalDividendGold: 15,
   crystalDividendIntervalSec: 12,
-  waveClearBaseGold: 32,
+  waveClearBaseGold: 38,
   waveClearPerWaveGold: 7,
 } as const;
 

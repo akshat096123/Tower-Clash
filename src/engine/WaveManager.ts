@@ -28,16 +28,19 @@ export class WaveManager {
     const waveConfig: EnemySpawnConfig = { waveNumber, difficulty };
 
     const baseCount = Math.max(
-      7,
-      Math.round((6 + waveNumber * 2.2) * preset.countMult)
+      8,
+      Math.round((7 + waveNumber * 2.0) * preset.countMult)
     );
     const isBossWave = waveNumber % 5 === 0 || waveNumber === totalWaves;
 
     for (let i = 0; i < baseCount; i++) {
       let type: EnemyType = 'normal';
 
+      if (waveNumber === 1 && i >= 3 && i % 4 === 3) type = 'fast';
       if (waveNumber >= 2 && i % 4 === 1) type = 'fast';
+      if (waveNumber === 2 && i === baseCount - 2) type = 'armored';
       if (waveNumber >= 3 && i % 6 === 2) type = 'armored';
+      if (waveNumber === 3 && i === baseCount - 3) type = 'flying';
       if (waveNumber >= 4 && i % 7 === 3) type = 'heavy';
       if (waveNumber >= 4 && i % 8 === 4) type = 'witch';
       if (waveNumber >= 5 && i % 9 === 5) type = 'flying';
@@ -57,12 +60,12 @@ export class WaveManager {
 
       let delay =
         type === 'fast'
-          ? 0.48
+          ? 0.52
           : type === 'heavy' || type === 'armored'
-          ? 0.95
+          ? 0.92
           : type === 'witch'
-          ? 0.85
-          : 0.68;
+          ? 0.82
+          : 0.72;
       if (difficulty === 'veteran') delay *= 0.9;
       else if (difficulty === 'nightmare') delay *= 0.82;
 
