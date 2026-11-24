@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --bg-app: #0c140e;
+  --bg-surface: #141c13;
+  --bg-elevated: #1c2419;
+  --border-subtle: rgba(250, 204, 21, 0.25);
+  --accent-cyan: #facc15;
+  --accent-emerald: #22c55e;
+  --text-primary: #fefce8;
+  --text-muted: #d6d3d1;
+  scrollbar-color: #4d3b27 #111811;
+  scrollbar-width: thin;
+  accent-color: #22c55e;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-block-size: 100dvb;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+.app-scroll {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+:where(a:any-link, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid #facc15;
+  outline-offset: 2px;
+}
+
+dialog:modal {
+  overscroll-behavior: contain;
+  background: #1a140f;
+  color: var(--text-primary);
+  border: 2px solid #78552b;
+  border-radius: 18px;
+  padding: 0;
+  max-inline-size: min(92dvw, 960px);
+  max-block-size: 88dvb;
+  margin: auto;
+}
+
+dialog::backdrop {
+  background: rgba(5, 8, 5, 0.78);
+  backdrop-filter: blur(4px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+.skip-link:focus {
+  position: fixed;
+  inset-block-start: 12px;
+  inset-inline-start: 12px;
+  z-index: 100;
+  background: #16a34a;
+  color: #ffffff;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+/* Smooth Arcade Game UI Animations */
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(-0.4deg);
+  }
+  50% {
+    transform: translateY(-7px) rotate(0.4deg);
+  }
+}
+
+@keyframes popIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.84) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes radialPop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.65);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes pulseBeacon {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+  }
+}
+
+.animate-float-slow {
+  animation: floatSlow 3.6s ease-in-out infinite;
+}
+
+.animate-pop-in {
+  animation: popIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-radial-pop {
+  animation: radialPop 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-pulse-beacon {
+  animation: pulseBeacon 1.8s ease-in-out infinite;
+}
+
+.game-text-outline {
+  text-shadow:
+    0 2px 0 #1f140a,
+    0 -1px 0 #1f140a,
+    2px 0 0 #1f140a,
+    -2px 0 0 #1f140a,
+    0 4px 10px rgba(0, 0, 0, 0.65);
+}
+
+.btn-game-green {
+  background: linear-gradient(180deg, #74e034 0%, #3aa81c 65%, #2b8512 100%);
+  border: 3px solid #1b280e;
+  box-shadow: 0 6px 0 #1c5a0a, inset 0 2px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+
+.btn-game-green:hover:not(:disabled) {
+  filter: brightness(1.07);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 0 #1c5a0a, inset 0 2px 0 rgba(255, 255, 255, 0.55);
+}
+
+.btn-game-green:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 #1c5a0a;
+}
