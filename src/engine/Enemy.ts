@@ -1,4 +1,41 @@
-import { EnemySnapshot, EnemyType, GridCoord, Point2D, TerrainType } from '../types/game';
+import { DifficultyLevel, EnemySnapshot, EnemyType, GridCoord, Point2D, TerrainType } from '../types/game';
+import {
+  BASE_BOT_HP,
+  BASE_BOT_SPEED,
+  computeScaledBotHp,
+  computeScaledBotReward,
+  computeScaledBotSpeed,
+  ENEMY_ARCHETYPES,
+} from './balance';
+
+export interface EnemySpawnConfig {
+  waveNumber: number;
+  difficulty: DifficultyLevel;
+}
+
+function resolveEnemyStats(
+  type: EnemyType,
+  scaleOrConfig: number | EnemySpawnConfig
+): { maxHealth: number; speed: number; armor: number; reward: number; leakDamage: number } {
+  const spec = ENEMY_ARCHETYPES[type] ?? ENEMY_ARCHETYPES.normal;
+  if (typeof scaleOrConfig === 'number') {
+    const waveScale = Math.max(0.1, scaleOrConfig);
+    return {
+      maxHealth: Math.max(1, Math.round(BASE_BOT_HP * spec.hpMult * waveScale)),
+      speed: Math.round(BASE_BOT_SPEED * spec.speedMult),
+      armor: spec.armor,
+      reward: spec.reward,
+      leakDamage: spec.leakDamage,
+    };
+  }
+  return {
+    maxHealth: computeScaledBotHp(scaleOrConfig.waveNumber, type, scaleOrConfig.difficulty),
+    speed: computeScaledBotSpeed(type, scaleOrConfig.difficulty),
+    armor: spec.armor,
+    reward: computeScaledBotReward(type, scaleOrConfig.difficulty),
+    leakDamage: spec.leakDamage,
+  };
+}
 
 export abstract class Enemy {
   readonly id: number;
@@ -9,6 +46,7 @@ export abstract class Enemy {
   readonly baseSpeed: number;
   readonly armor: number;
   readonly reward: number;
+  readonly leakDamage: number;
   readonly isFlying: boolean;
   protected x: number;
   protected y: number;
@@ -24,6 +62,8 @@ export abstract class Enemy {
   protected hitFlashTimer = 0;
   protected alive = true;
   protected reachedBase = false;
+  private rewardClaimed = false;
+  private baseDamageClaimed = false;
 
   constructor(
     id: number,
@@ -33,6 +73,7 @@ export abstract class Enemy {
     speed: number,
     armor: number,
     reward: number,
+    leakDamage: number,
     isFlying: boolean,
     gridPath: GridCoord[],
     cellSize: number
@@ -45,6 +86,7 @@ export abstract class Enemy {
     this.baseSpeed = speed;
     this.armor = armor;
     this.reward = reward;
+    this.leakDamage = leakDamage;
     this.isFlying = isFlying;
     this.gridPath = gridPath;
     this.path = gridPath.map((c) => ({
@@ -71,7 +113,7 @@ export abstract class Enemy {
   get threatScore(): number {
     const progressBonus = this.pathProgress * 120;
     const hpFactor = this.health * 0.25;
-    const bossBonus = this.type === 'boss' ? 150 : 0;
+    const bossBonus = this.type === 'boss' ? 150 : this.type === 'dragon' ? 75 : 0;
     return Math.round(progressBonus + hpFactor + this.currentSpeed * 0.4 + bossBonus);
   }
 
@@ -91,8 +133,29 @@ export abstract class Enemy {
     return this.health;
   }
 
+  /** Guarantees kill gold is awarded at most once even under simultaneous multi-hit frames. */
+  claimReward(): number {
+    if (this.alive || this.reachedBase || this.rewardClaimed) return 0;
+    this.rewardClaimed = true;
+    return this.reward;
+  }
+
+  /** Guarantees castle breach damage is applied at most once. */
+  claimBaseBreach(): number {
+    if (!this.reachedBase || !this.alive || this.baseDamageClaimed) return 0;
+    this.baseDamageClaimed = true;
+    this.alive = false;
+    return this.leakDamage;
+  }
+
+  /** Takes the strongest active slow rather than compounding multiplicatively. */
   applySlow(factor: number, duration: number): void {
-    this.slowFactor = Math.min(this.slowFactor, factor);
+    const clampedFactor = Math.max(0.35, Math.min(1, factor));
+    if (this.slowTimer <= 0) {
+      this.slowFactor = clampedFactor;
+    } else {
+      this.slowFactor = Math.min(this.slowFactor, clampedFactor);
+    }
     this.slowTimer = Math.max(this.slowTimer, duration);
   }
 
@@ -102,32 +165,40 @@ export abstract class Enemy {
   }
 
   takeDamage(rawDamage: number, armorPiercing = false): number {
-    if (!this.alive) return 0;
+    if (!this.alive || this.reachedBase) return 0;
     const effectiveArmor = armorPiercing ? this.armor * 0.2 : this.armor;
-    const shieldMult = this.shieldActive ? 0.55 : 1.0;
+    const shieldMult = this.shieldActive ? 0.6 : 1.0;
     const dmg = Math.max(1, (rawDamage - effectiveArmor) * shieldMult);
+    const applied = Math.min(this.health, dmg);
     this.health -= dmg;
     this.hitFlashTimer = 0.11;
     if (this.health <= 0) {
       this.health = 0;
       this.alive = false;
     }
-    return dmg;
+    return applied;
   }
 
   update(dt: number, grid: TerrainType[][], cellSize: number): void {
     if (!this.alive || this.reachedBase) return;
 
-    if (this.hitFlashTimer > 0) this.hitFlashTimer -= dt;
+    if (this.hitFlashTimer > 0) this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
 
     if (this.slowTimer > 0) {
       this.slowTimer -= dt;
-      if (this.slowTimer <= 0) this.slowFactor = 1;
+      if (this.slowTimer <= 0) {
+        this.slowTimer = 0;
+        this.slowFactor = 1;
+      }
     }
 
     if (this.burnTimer > 0) {
       this.burnTimer -= dt;
       this.health -= this.burnDps * dt;
+      if (this.burnTimer <= 0) {
+        this.burnTimer = 0;
+        this.burnDps = 0;
+      }
       if (this.health <= 0) {
         this.health = 0;
         this.alive = false;
@@ -137,15 +208,18 @@ export abstract class Enemy {
 
     this.updateAbility(dt);
 
-    // Check terrain slow zone for ground enemies
-    let terrainMult = 1;
+    // Check terrain slow zone for ground enemies; cap combined slow at 0.35x so bots never stall
+    let combinedSpeed = this.currentSpeed;
     if (!this.isFlying) {
       const r = Math.min(grid.length - 1, Math.max(0, Math.floor(this.y / cellSize)));
       const c = Math.min(grid[0].length - 1, Math.max(0, Math.floor(this.x / cellSize)));
-      if (grid[r][c] === 'slow_zone') terrainMult = 0.65;
+      if (grid[r][c] === 'slow_zone') {
+        const effectiveSlow = Math.max(0.35, (this.slowTimer > 0 ? this.slowFactor : 1) * 0.72);
+        combinedSpeed = this.baseSpeed * effectiveSlow;
+      }
     }
 
-    let moveLeft = this.currentSpeed * terrainMult * dt;
+    let moveLeft = combinedSpeed * dt;
     while (moveLeft > 0 && this.pathIndex < this.path.length - 1) {
       const target = this.path[this.pathIndex + 1];
       const dx = target.x - this.x;
@@ -199,71 +273,90 @@ export abstract class Enemy {
   }
 }
 
+export class SwarmEnemy extends Enemy {
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, path: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('swarm', waveScaleOrCfg);
+    super(id, 'swarm', ENEMY_ARCHETYPES.swarm.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, false, path, cellSize);
+  }
+  updateAbility(): void {}
+}
+
 export class NormalEnemy extends Enemy {
-  constructor(id: number, waveScale: number, path: GridCoord[], cellSize: number) {
-    super(id, 'normal', 'Goblin Raider', Math.round(95 * waveScale), 72, 2, 14, false, path, cellSize);
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, path: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('normal', waveScaleOrCfg);
+    super(id, 'normal', ENEMY_ARCHETYPES.normal.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, false, path, cellSize);
   }
   updateAbility(): void {}
 }
 
 export class FastEnemy extends Enemy {
-  constructor(id: number, waveScale: number, path: GridCoord[], cellSize: number) {
-    super(id, 'fast', 'Shadow Wolf', Math.round(65 * waveScale), 132, 0, 14, false, path, cellSize);
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, path: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('fast', waveScaleOrCfg);
+    super(id, 'fast', ENEMY_ARCHETYPES.fast.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, false, path, cellSize);
   }
   updateAbility(): void {}
 }
 
 export class HeavyEnemy extends Enemy {
-  constructor(id: number, waveScale: number, path: GridCoord[], cellSize: number) {
-    super(id, 'heavy', 'Stone Golem', Math.round(270 * waveScale), 44, 8, 30, false, path, cellSize);
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, path: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('heavy', waveScaleOrCfg);
+    super(id, 'heavy', ENEMY_ARCHETYPES.heavy.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, false, path, cellSize);
   }
   updateAbility(): void {}
 }
 
 export class ArmoredEnemy extends Enemy {
-  constructor(id: number, waveScale: number, path: GridCoord[], cellSize: number) {
-    super(id, 'armored', 'Orc Vanguard', Math.round(185 * waveScale), 56, 18, 28, false, path, cellSize);
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, path: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('armored', waveScaleOrCfg);
+    super(id, 'armored', ENEMY_ARCHETYPES.armored.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, false, path, cellSize);
   }
   updateAbility(): void {}
 }
 
 export class DragonEnemy extends Enemy {
-  constructor(id: number, waveScale: number, airPath: GridCoord[], cellSize: number) {
-    super(id, 'dragon', 'Ancient Wyvern', Math.round(540 * waveScale), 112, 10, 65, true, airPath, cellSize);
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, airPath: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('dragon', waveScaleOrCfg);
+    super(id, 'dragon', ENEMY_ARCHETYPES.dragon.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, true, airPath, cellSize);
   }
-  updateAbility(dt: number): void {
-    if (this.slowTimer > 0) this.slowTimer -= dt * 2.0;
+  override applySlow(factor: number, duration: number): void {
+    // Wyvern sheds 40% of slow intensity and 35% of duration cleanly
+    const reducedFactor = 1 - (1 - factor) * 0.6;
+    super.applySlow(reducedFactor, duration * 0.65);
   }
+  updateAbility(): void {}
 }
 
 export class WitchEnemy extends Enemy {
-  constructor(id: number, waveScale: number, path: GridCoord[], cellSize: number) {
-    super(id, 'witch', 'Shadow Witch', Math.round(330 * waveScale), 64, 4, 45, false, path, cellSize);
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, path: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('witch', waveScaleOrCfg);
+    super(id, 'witch', ENEMY_ARCHETYPES.witch.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, false, path, cellSize);
   }
   updateAbility(dt: number): void {
     this.abilityCooldown += dt;
-    this.shieldActive = (this.abilityCooldown % 6) < 2.5;
+    this.shieldActive = (this.abilityCooldown % 6.5) < 2.2;
   }
 }
 
 export class BossEnemy extends Enemy {
-  constructor(id: number, waveScale: number, path: GridCoord[], cellSize: number) {
-    super(id, 'boss', 'Kernel Overlord', Math.round(890 * waveScale), 38, 14, 150, false, path, cellSize);
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, path: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('boss', waveScaleOrCfg);
+    super(id, 'boss', ENEMY_ARCHETYPES.boss.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, false, path, cellSize);
   }
   updateAbility(dt: number): void {
     this.abilityCooldown += dt;
-    // Cycles between Shield Pulse (2.8s) and Regeneration (4.2s)
     const cycle = this.abilityCooldown % 7;
-    this.shieldActive = cycle < 2.8;
+    this.shieldActive = cycle < 2.5;
     if (!this.shieldActive && this.health < this.maxHealth) {
-      this.health = Math.min(this.maxHealth, this.health + 18 * dt);
+      // Proportional 1.2% maxHP/sec regen during unshielded phase
+      this.health = Math.min(this.maxHealth, this.health + this.maxHealth * 0.012 * dt);
     }
   }
 }
 
 export class FlyingEnemy extends Enemy {
-  constructor(id: number, waveScale: number, airPath: GridCoord[], cellSize: number) {
-    super(id, 'flying', 'Winged Gargoyle', Math.round(95 * waveScale), 98, 4, 20, true, airPath, cellSize);
+  constructor(id: number, waveScaleOrCfg: number | EnemySpawnConfig, airPath: GridCoord[], cellSize: number) {
+    const s = resolveEnemyStats('flying', waveScaleOrCfg);
+    super(id, 'flying', ENEMY_ARCHETYPES.flying.name, s.maxHealth, s.speed, s.armor, s.reward, s.leakDamage, true, airPath, cellSize);
   }
   updateAbility(): void {}
 }
@@ -271,29 +364,30 @@ export class FlyingEnemy extends Enemy {
 export function createEnemyByType(
   id: number,
   type: EnemyType,
-  waveScale: number,
+  waveScaleOrCfg: number | EnemySpawnConfig,
   groundPath: GridCoord[],
   airPath: GridCoord[],
   cellSize: number
 ): Enemy {
   switch (type) {
+    case 'swarm':
+      return new SwarmEnemy(id, waveScaleOrCfg, groundPath, cellSize);
     case 'fast':
-      return new FastEnemy(id, waveScale, groundPath, cellSize);
+      return new FastEnemy(id, waveScaleOrCfg, groundPath, cellSize);
     case 'heavy':
-      return new HeavyEnemy(id, waveScale, groundPath, cellSize);
+      return new HeavyEnemy(id, waveScaleOrCfg, groundPath, cellSize);
     case 'armored':
-      return new ArmoredEnemy(id, waveScale, groundPath, cellSize);
+      return new ArmoredEnemy(id, waveScaleOrCfg, groundPath, cellSize);
     case 'dragon':
-      return new DragonEnemy(id, waveScale, airPath, cellSize);
+      return new DragonEnemy(id, waveScaleOrCfg, airPath, cellSize);
     case 'witch':
-      return new WitchEnemy(id, waveScale, groundPath, cellSize);
+      return new WitchEnemy(id, waveScaleOrCfg, groundPath, cellSize);
     case 'boss':
-      return new BossEnemy(id, waveScale, groundPath, cellSize);
+      return new BossEnemy(id, waveScaleOrCfg, groundPath, cellSize);
     case 'flying':
-      return new FlyingEnemy(id, waveScale, airPath, cellSize);
+      return new FlyingEnemy(id, waveScaleOrCfg, airPath, cellSize);
     case 'normal':
     default:
-      return new NormalEnemy(id, waveScale, groundPath, cellSize);
+      return new NormalEnemy(id, waveScaleOrCfg, groundPath, cellSize);
   }
 }
-

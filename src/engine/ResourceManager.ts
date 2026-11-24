@@ -1,18 +1,17 @@
 import { HashTable } from '../dsa/hashing';
 import { DifficultyLevel } from '../types/game';
+import { DIFFICULTY_PRESETS } from './balance';
 
 export class ResourceManager {
   private readonly statsTable = new HashTable<number>('chaining', 19);
 
   constructor(difficulty: DifficultyLevel) {
-    const startGold =
-      difficulty === 'recruit' ? 320 : difficulty === 'veteran' ? 220 : difficulty === 'nightmare' ? 190 : 260;
-    const startHealth = difficulty === 'nightmare' ? 75 : 100;
+    const preset = DIFFICULTY_PRESETS[difficulty] ?? DIFFICULTY_PRESETS.standard;
 
-    this.statsTable.insert('gold', startGold);
+    this.statsTable.insert('gold', preset.startingGold);
     this.statsTable.insert('goldEarned', 0);
-    this.statsTable.insert('baseHealth', startHealth);
-    this.statsTable.insert('maxBaseHealth', startHealth);
+    this.statsTable.insert('baseHealth', preset.startHealth);
+    this.statsTable.insert('maxBaseHealth', preset.startHealth);
     this.statsTable.insert('enemiesDefeated', 0);
     this.statsTable.insert('towersBuilt', 0);
   }
@@ -59,7 +58,9 @@ export class ResourceManager {
   }
 
   recordKill(reward: number): void {
-    this.addGold(reward, true);
+    if (reward > 0) {
+      this.addGold(reward, true);
+    }
     this.statsTable.insert('enemiesDefeated', this.enemiesDefeated + 1);
   }
 
@@ -78,4 +79,3 @@ export class ResourceManager {
     return { lookups: state.lookups, collisions: state.collisions };
   }
 }
-

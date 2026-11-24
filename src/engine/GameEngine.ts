@@ -17,6 +17,7 @@ import { ResourceManager } from './ResourceManager';
 import { getTargetingStrategy } from './TargetingStrategy';
 import { AttackEvent, createTowerByType, Tower, TOWER_CATALOG } from './Tower';
 import { WaveManager } from './WaveManager';
+import { DIFFICULTY_PRESETS, ECONOMY_BALANCE, SPELL_BALANCE } from './balance';
 
 interface UndoTowerAction {
   kind: 'place';
@@ -101,7 +102,10 @@ export class GameEngine {
     this.resources = new ResourceManager(difficulty);
     this.waveManager = new WaveManager(difficulty);
 
-    this.eventRing.enqueue({ label: 'Resource Crystal Dividend (+12g)', intervalSec: 12 });
+    this.eventRing.enqueue({
+      label: `Resource Crystal Dividend (+${ECONOMY_BALANCE.crystalDividendGold}g)`,
+      intervalSec: ECONOMY_BALANCE.crystalDividendIntervalSec,
+    });
     this.eventRing.enqueue({ label: 'Spatial Index Telemetry Sync', intervalSec: 12 });
     this.eventRing.enqueue({ label: 'Segment Tree HP Audit', intervalSec: 12 });
 
@@ -160,17 +164,20 @@ export class GameEngine {
   }
 
   undoLastPlacement(): boolean {
-    if (this.undoStack.isEmpty()) return false;
-    const action = this.undoStack.pop();
-    if (action.kind === 'place') {
-      for (let i = 0; i < this.towers.size; i++) {
-        if (this.towers.get(i).id === action.towerId) {
-          this.towers.removeAt(i);
-          this.towerTable.remove(`T-${action.towerId}`);
-          this.resources.addGold(action.cost, false);
-          if (this.selectedTowerId === action.towerId) this.selectedTowerId = null;
-          this.log(`Undo Stack popped: removed Tower #${action.towerId}, refunded ${action.cost} Coins`);
-          return true;
+    while (!this.undoStack.isEmpty()) {
+      const action = this.undoStack.pop();
+      if (action.kind === 'place') {
+        for (let i = 0; i < this.towers.size; i++) {
+          const tower = this.towers.get(i);
+          if (tower.id === action.towerId) {
+            const refund = tower.investedGold;
+            this.towers.removeAt(i);
+            this.towerTable.remove(`T-${action.towerId}`);
+            this.resources.addGold(refund, false);
+            if (this.selectedTowerId === action.towerId) this.selectedTowerId = null;
+            this.log(`Undo Stack popped: removed Tower #${action.towerId}, refunded ${refund} Coins`);
+            return true;
+          }
         }
       }
     }
@@ -195,6 +202,15 @@ export class GameEngine {
         this.towers.removeAt(i);
         this.towerTable.remove(`T-${towerId}`);
         this.resources.addGold(refund, false);
+        // Remove sold tower from undoStack so sell + undo cannot double-refund
+        const preserved: UndoTowerAction[] = [];
+        while (!this.undoStack.isEmpty()) {
+          const item = this.undoStack.pop();
+          if (item.towerId !== towerId) preserved.push(item);
+        }
+        for (let k = preserved.length - 1; k >= 0; k--) {
+          this.undoStack.push(preserved[k]);
+        }
         if (this.selectedTowerId === towerId) this.selectedTowerId = null;
         this.log(`Sold ${tower.name} #${towerId} for +${refund} Coins`);
         return true;
@@ -240,8 +256,8 @@ export class GameEngine {
     if (this.waveActive || this.status === 'victory' || this.status === 'defeat') return false;
     if (this.wave >= this.map.wavesCount) return false;
     if (this.wave > 0) {
-      this.resources.addGold(15, true);
-      this.log('Early Wave Call! +15 Coins bonus');
+      this.resources.addGold(ECONOMY_BALANCE.earlyWaveBonusGold, true);
+      this.log(`Early Wave Call! +${ECONOMY_BALANCE.earlyWaveBonusGold} Coins bonus`);
     }
     return this.startNextWave();
   }
@@ -258,17 +274,17 @@ export class GameEngine {
       cy = enemiesArr[0].position.y;
     }
 
-    this.meteorCooldown = 16;
+    this.meteorCooldown = SPELL_BALANCE.meteorCooldownSec;
     this.spellEffects.push({ kind: 'meteor', x: cx, y: cy, age: 0, duration: 0.7 });
+    const meteorDmg = SPELL_BALANCE.meteorBaseDamage + this.wave * SPELL_BALANCE.meteorWaveDamage;
     for (const e of enemiesArr) {
+      if (!e.isAlive || e.hasReachedBase) continue;
       const pos = e.position;
-      if (Math.hypot(pos.x - cx, pos.y - cy) <= 135) {
-        e.takeDamage(140 + this.wave * 18, true);
-        e.applyBurn(15, 2.5);
+      if (Math.hypot(pos.x - cx, pos.y - cy) <= SPELL_BALANCE.meteorRadius) {
+        e.takeDamage(meteorDmg, true);
+        e.applyBurn(SPELL_BALANCE.meteorBurnDps, SPELL_BALANCE.meteorBurnDuration);
         if (!e.isAlive) {
-          this.activeEnemies.removeByPredicate((x) => x.id === e.id);
-          this.enemyTable.remove(`E-${e.id}`);
-          this.resources.recordKill(e.reward);
+          this.handleEnemyDeath(e);
         }
       }
     }
@@ -281,19 +297,31 @@ export class GameEngine {
     const enemiesArr = this.activeEnemies.toArray();
     const mapW = this.map.cols * this.map.cellSize;
     const mapH = this.map.rows * this.map.cellSize;
-    this.frostCooldown = 14;
+    this.frostCooldown = SPELL_BALANCE.frostCooldownSec;
     this.spellEffects.push({ kind: 'frost', x: mapW / 2, y: mapH / 2, age: 0, duration: 0.85 });
+    const frostDmg = SPELL_BALANCE.frostBaseDamage + this.wave * SPELL_BALANCE.frostWaveDamage;
     for (const e of enemiesArr) {
-      e.applySlow(0.35, 4.5);
-      e.takeDamage(35 + this.wave * 6, true);
+      if (!e.isAlive || e.hasReachedBase) continue;
+      e.applySlow(SPELL_BALANCE.frostSlowFactor, SPELL_BALANCE.frostSlowDuration);
+      e.takeDamage(frostDmg, true);
       if (!e.isAlive) {
-        this.activeEnemies.removeByPredicate((x) => x.id === e.id);
-        this.enemyTable.remove(`E-${e.id}`);
-        this.resources.recordKill(e.reward);
+        this.handleEnemyDeath(e);
       }
     }
     this.log('Cast Frost Nova — all invaders chilled!');
     return true;
+  }
+
+  private handleEnemyDeath(enemy: Enemy, killerTower?: Tower): void {
+    const reward = enemy.claimReward();
+    if (reward > 0 || !enemy.isAlive) {
+      if (reward > 0 && killerTower) killerTower.kills++;
+      this.activeEnemies.removeByPredicate((x) => x.id === enemy.id);
+      this.enemyTable.remove(`E-${enemy.id}`);
+      if (reward > 0) {
+        this.resources.recordKill(reward);
+      }
+    }
   }
 
   togglePause(): void {
@@ -310,7 +338,7 @@ export class GameEngine {
     this.waveActive = true;
     this.autoWaveCountdown = 0;
     this.status = 'playing';
-    this.waveManager.prepareWave(this.wave, this.difficulty);
+    this.waveManager.prepareWave(this.wave, this.difficulty, this.map.wavesCount);
     this.log(`Wave ${this.wave}/${this.map.wavesCount} marched!`);
     return true;
   }
@@ -318,20 +346,17 @@ export class GameEngine {
   update(rawDt: number): void {
     if (this.status === 'paused' || this.status === 'victory' || this.status === 'defeat') return;
 
-    const dt = Math.min(0.05, rawDt) * this.speedMultiplier;
+    const clampedRawDt = Math.min(0.05, Math.max(0, rawDt));
 
-    // Tick spell cooldowns & active visual spell effects even between waves
-    if (this.meteorCooldown > 0) this.meteorCooldown = Math.max(0, this.meteorCooldown - dt);
-    if (this.frostCooldown > 0) this.frostCooldown = Math.max(0, this.frostCooldown - dt);
     this.spellEffects = this.spellEffects.filter((fx) => {
-      fx.age += rawDt;
+      fx.age += clampedRawDt;
       return fx.age < fx.duration;
     });
 
-    // Auto-wave countdown before wave 1 or between waves (auto-skips after a few seconds!)
+    // Auto-wave countdown before wave 1 or between waves
     if (!this.waveActive && this.wave < this.map.wavesCount) {
       if (this.autoWaveEnabled) {
-        this.autoWaveCountdown -= Math.min(0.05, rawDt);
+        this.autoWaveCountdown -= clampedRawDt;
         if (this.autoWaveCountdown <= 0) {
           this.startNextWave();
         }
@@ -340,16 +365,31 @@ export class GameEngine {
     }
 
     if (this.status !== 'playing') return;
+
+    // Sub-step simulation in <= 0.025s ticks so 1x, 2x, and 3x speeds are mathematically identical
+    const totalSimDt = clampedRawDt * this.speedMultiplier;
+    const steps = Math.max(1, Math.ceil(totalSimDt / 0.025));
+    const stepDt = totalSimDt / steps;
+
+    for (let s = 0; s < steps; s++) {
+      if (this.status !== 'playing') break;
+      this.stepSimulation(stepDt);
+    }
+  }
+
+  private stepSimulation(dt: number): void {
+    if (this.meteorCooldown > 0) this.meteorCooldown = Math.max(0, this.meteorCooldown - dt);
+    if (this.frostCooldown > 0) this.frostCooldown = Math.max(0, this.frostCooldown - dt);
     this.elapsedSec += dt;
 
     // 1. CircularQueue periodic game events
     this.periodicTimer += dt;
-    if (this.periodicTimer >= 12) {
+    if (this.periodicTimer >= ECONOMY_BALANCE.crystalDividendIntervalSec) {
       this.periodicTimer = 0;
       if (!this.eventRing.isEmpty()) {
         const ev = this.eventRing.dequeue();
         if (ev.label.includes('Resource Crystal')) {
-          this.resources.addGold(12, true);
+          this.resources.addGold(ECONOMY_BALANCE.crystalDividendGold, true);
         }
         this.log(`CircularQueue Event: ${ev.label}`);
         this.eventRing.enqueue(ev);
@@ -363,7 +403,7 @@ export class GameEngine {
       const enemy = createEnemyByType(
         id,
         task.type,
-        task.waveScale,
+        task.waveConfig,
         this.map.groundPath,
         this.map.airPath,
         this.map.cellSize
@@ -372,22 +412,27 @@ export class GameEngine {
       this.enemyTable.insert(`E-${id}`, enemy);
     }
 
-    // 3. Move active enemies & handle base breaches / burn deaths
+    // 3. Move active enemies & handle base breaches / burn deaths (at most once per bot)
     this.activeEnemies.forEach((enemy, node) => {
       enemy.update(dt, this.map.grid, this.map.cellSize);
       if (!enemy.isAlive) {
+        const reward = enemy.claimReward();
         this.activeEnemies.removeNode(node);
         this.enemyTable.remove(`E-${enemy.id}`);
-        this.resources.recordKill(enemy.reward);
+        if (reward > 0) {
+          this.resources.recordKill(reward);
+        }
       } else if (enemy.hasReachedBase) {
+        const leakDmg = enemy.claimBaseBreach();
         this.activeEnemies.removeNode(node);
         this.enemyTable.remove(`E-${enemy.id}`);
-        const leakDmg = enemy.type === 'boss' ? 25 : enemy.type === 'heavy' ? 12 : 6;
-        const hpLeft = this.resources.damageBase(leakDmg);
-        this.log(`Base breached by ${enemy.name} (-${leakDmg} HP)`);
-        if (hpLeft <= 0) {
-          this.status = 'defeat';
-          this.waveActive = false;
+        if (leakDmg > 0) {
+          const hpLeft = this.resources.damageBase(leakDmg);
+          this.log(`Base breached by ${enemy.name} (-${leakDmg} HP)`);
+          if (hpLeft <= 0) {
+            this.status = 'defeat';
+            this.waveActive = false;
+          }
         }
       }
     });
@@ -479,12 +524,24 @@ export class GameEngine {
     // 6. Update Projectiles & Apply Damage
     this.updateProjectiles(dt, enemiesArr);
 
-    // 7. Wave completion & Victory check
+    // 7. Wave completion, Anti-Softlock Guardrail & Victory check
     if (this.waveActive && this.waveManager.spawnQueue.isEmpty() && this.activeEnemies.size === 0) {
       this.waveActive = false;
-      const bonus = 30 + this.wave * 8;
+      const preset = DIFFICULTY_PRESETS[this.difficulty] ?? DIFFICULTY_PRESETS.standard;
+      const bonus = Math.round(
+        (ECONOMY_BALANCE.waveClearBaseGold + this.wave * ECONOMY_BALANCE.waveClearPerWaveGold) *
+          preset.rewardMult
+      );
       this.resources.addGold(bonus, true);
       this.log(`Wave ${this.wave} cleared! +${bonus} Coins`);
+
+      // Anti-softlock: if player has zero towers and below cheapest tower cost, grant emergency stipend
+      if (this.towers.size === 0 && this.resources.gold < ECONOMY_BALANCE.cheapestTowerCost) {
+        const deficit = ECONOMY_BALANCE.cheapestTowerCost - this.resources.gold;
+        this.resources.addGold(deficit, true);
+        this.log(`Emergency Garrison Stipend: +${deficit} Coins`);
+      }
+
       if (this.wave >= this.map.wavesCount) {
         this.status = 'victory';
         this.log('All waves eliminated! Kingdom Defended!');
@@ -548,32 +605,27 @@ export class GameEngine {
     if (ev.splashRadius > 0 && enemiesArr) {
       const center = target.position;
       for (const e of enemiesArr) {
+        if (!e.isAlive || e.hasReachedBase) continue;
         const p = e.position;
         if (Math.hypot(p.x - center.x, p.y - center.y) <= ev.splashRadius) {
           const dealt = e.takeDamage(ev.damage, ev.armorPiercing);
           if (tower) tower.damageDealt += dealt;
           if (ev.slowFactor && ev.slowDuration) e.applySlow(ev.slowFactor, ev.slowDuration);
           if (!e.isAlive) {
-            if (tower) tower.kills++;
-            this.activeEnemies.removeByPredicate((x) => x.id === e.id);
-            this.enemyTable.remove(`E-${e.id}`);
-            this.resources.recordKill(e.reward);
+            this.handleEnemyDeath(e, tower);
           }
         }
       }
       return;
     }
 
-    if (!target.isAlive) return;
+    if (!target.isAlive || target.hasReachedBase) return;
     const dealt = target.takeDamage(ev.damage, ev.armorPiercing);
     if (tower) tower.damageDealt += dealt;
     if (ev.slowFactor && ev.slowDuration) target.applySlow(ev.slowFactor, ev.slowDuration);
     if (ev.burnDps) target.applyBurn(ev.burnDps, 2.0);
     if (!target.isAlive) {
-      if (tower) tower.kills++;
-      this.activeEnemies.removeByPredicate((x) => x.id === target.id);
-      this.enemyTable.remove(`E-${target.id}`);
-      this.resources.recordKill(target.reward);
+      this.handleEnemyDeath(target, tower);
     }
   }
 

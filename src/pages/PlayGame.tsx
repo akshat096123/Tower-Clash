@@ -1,39 +1,42 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
+  Bomb,
   Box,
   Coins,
   Compass,
   Crosshair,
   DollarSign,
-  Eye,
   Flame,
   Heart,
   Home,
   Info,
+  Lock,
   Pause,
   Play,
   RotateCcw,
   Skull,
   Snowflake,
   Sparkles,
+  Target,
   Timer,
   Undo2,
   Volume2,
   VolumeX,
   Waves,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   DifficultyLevel,
   GameStateSnapshot,
+  GraphicsQuality,
   GridCoord,
   SortAlgorithmType,
   TargetingStrategyType,
   TowerType,
 } from '../types/game';
 import { GameEngine } from '../engine/GameEngine';
-import { renderGameCanvas } from '../engine/GameCanvasRenderer';
 import { CameraViewMode, GameThreeRenderer } from '../engine/GameThreeRenderer';
 import { TOWER_CATALOG } from '../engine/Tower';
 import { soundFX } from '../engine/soundFx';
@@ -43,6 +46,8 @@ interface PlayGameProps {
   defaultDifficulty: DifficultyLevel;
   defaultSortAlgo: SortAlgorithmType;
   showSpatialGridDefault: boolean;
+  graphicsQuality?: GraphicsQuality;
+  onChangeGraphicsQuality?: (quality: GraphicsQuality) => void;
   onExitToTitle?: () => void;
   onSessionSaved: () => void;
 }
@@ -75,11 +80,22 @@ const SHORT_TOWER_NAMES: Record<TowerType, string> = {
   laser: 'Sorceress',
 };
 
+const TOWER_ICONS: Record<TowerType, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+  basic: Crosshair,
+  sniper: Target,
+  rapid: Zap,
+  splash: Bomb,
+  slow: Snowflake,
+  laser: Sparkles,
+};
+
 export const PlayGame: React.FC<PlayGameProps> = ({
   initialMapId,
   defaultDifficulty,
   defaultSortAlgo,
   showSpatialGridDefault,
+  graphicsQuality = 'high',
+  onChangeGraphicsQuality,
   onExitToTitle,
   onSessionSaved,
 }) => {
@@ -88,9 +104,18 @@ export const PlayGame: React.FC<PlayGameProps> = ({
   const [buildPlotCell, setBuildPlotCell] = useState<GridCoord | null>(null);
   const [hoverCell, setHoverCell] = useState<GridCoord | null>(null);
   const [muted, setMuted] = useState(soundFX.muted);
+  const [localQuality, setLocalQuality] = useState<GraphicsQuality>(graphicsQuality);
   const [toastMsg, setToastMsg] = useState<string>(
-    'Click anywhere on the land to summon heroes! Protect the Royal Citadel!'
+    'Click any green tile to summon heroes and defend the Citadel.'
   );
+  const [toastVisible, setToastVisible] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (!toastMsg) return;
+    setToastVisible(true);
+    const timer = window.setTimeout(() => setToastVisible(false), 3200);
+    return () => window.clearTimeout(timer);
+  }, [toastMsg]);
 
   const engineRef = useRef<GameEngine>(new GameEngine(initialMapId, defaultDifficulty, defaultSortAlgo));
   const [snap, setSnap] = useState<GameStateSnapshot>(() => engineRef.current.getSnapshot());
@@ -101,6 +126,8 @@ export const PlayGame: React.FC<PlayGameProps> = ({
   const endDialogRef = useRef<HTMLDialogElement>(null);
   const savedEndRef = useRef<boolean>(false);
   const prevKillsRef = useRef<number>(0);
+  const prevHpRef = useRef<number>(engineRef.current.getSnapshot().baseHealth);
+  const [hpFlash, setHpFlash] = useState(false);
 
   const resetGame = (newMapId = initialMapId, newDiff = defaultDifficulty) => {
     const sortAlgo = engineRef.current.getSnapshot().sortAlgorithm;
@@ -109,6 +136,8 @@ export const PlayGame: React.FC<PlayGameProps> = ({
     threeRendererRef.current?.setMap(nextEngine.map);
     savedEndRef.current = false;
     prevKillsRef.current = 0;
+    prevHpRef.current = nextEngine.getSnapshot().baseHealth;
+    setHpFlash(false);
     setBuildPlotCell(null);
     setCastingMeteor(false);
     setSnap(nextEngine.getSnapshot());
@@ -172,6 +201,18 @@ export const PlayGame: React.FC<PlayGameProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  useEffect(() => {
+    setLocalQuality(graphicsQuality);
+  }, [graphicsQuality]);
+
+  useEffect(() => {
+    const three = threeRendererRef.current;
+    if (!three) return;
+    three.setGraphicsQuality(localQuality);
+    const dpr = three.getRecommendedDpr();
+    three.resize(Math.floor(window.innerWidth * dpr), Math.floor(window.innerHeight * dpr));
+  }, [localQuality]);
+
   // Initialize Three.js 3D WebGL Renderer on Canvas
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -180,14 +221,13 @@ export const PlayGame: React.FC<PlayGameProps> = ({
     const three = new GameThreeRenderer(canvas);
     three.setMap(engineRef.current.map);
     three.setViewMode(cameraMode);
+    three.setGraphicsQuality(localQuality);
     threeRendererRef.current = three;
 
     const handleResize = () => {
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.floor(rect.width * dpr);
-      const h = Math.floor(rect.height * dpr);
+      const dpr = three.getRecommendedDpr();
+      const w = Math.floor(window.innerWidth * dpr);
+      const h = Math.floor(window.innerHeight * dpr);
       three.resize(w, h);
     };
 
@@ -218,6 +258,11 @@ export const PlayGame: React.FC<PlayGameProps> = ({
       if (currentSnap.enemiesDefeated > prevKillsRef.current) {
         prevKillsRef.current = currentSnap.enemiesDefeated;
         soundFX.enemyCoin();
+      }
+      if (currentSnap.baseHealth < prevHpRef.current) {
+        prevHpRef.current = currentSnap.baseHealth;
+        setHpFlash(true);
+        window.setTimeout(() => setHpFlash(false), 480);
       }
 
       // Render 3D High Quality Scene with Three.js
@@ -416,446 +461,615 @@ export const PlayGame: React.FC<PlayGameProps> = ({
   const autoWaveEnabled = snap.autoWaveEnabled ?? true;
   const meteorCd = snap.meteorCooldown ?? 0;
   const frostCd = snap.frostCooldown ?? 0;
+  const enemiesRemaining = snap.enemies.length + snap.dsaStats.spawnQueueSize;
+  const hasBossActive = snap.enemies.some((e) => e.type === 'boss' || e.type === 'dragon');
+  const isFinalWave = snap.wave > 0 && snap.wave >= snap.totalWaves;
+  const isThreatAlert = hasBossActive || isFinalWave;
+  const waveProgressPct = Math.min(100, Math.round((snap.wave / Math.max(1, snap.totalWaves)) * 100));
 
   return (
-    <div className="min-h-dvh w-full bg-[#0d180b] px-2 sm:px-4 py-2 flex flex-col justify-between gap-2 select-none">
-      {/* Top Floating Game HUD Bar (Pure Game — Zero Website Tabs!) */}
-      <div className="max-w-[1260px] w-full mx-auto rounded-2xl border-2 border-[#3b2916] bg-gradient-to-b from-[#2b1f15] via-[#21170f] to-[#17100a] px-3 py-2 shadow-xl shadow-black/60 flex flex-wrap items-center justify-between gap-2">
-        {/* Left: Home + Vitals (Lives, Coins, Wave, Kills) */}
-        <div className="flex flex-wrap items-center gap-2 text-xs font-black">
-          <h1 className="sr-only">Tower Clash Battle Arena</h1>
-          {onExitToTitle && (
+    <div
+      className={`fixed inset-0 w-screen h-screen overflow-hidden select-none bg-[#0c140e] ${
+        castingMeteor ? 'cursor-crosshair' : ''
+      }`}
+    >
+      <h1 className="sr-only">Tower Clash Battle Arena</h1>
+
+      {/* Full-Screen Edge-to-Edge 3D WebGL Canvas (100vw x 100vh) */}
+      <canvas
+        ref={canvasRef}
+        onMouseMove={(e) => setHoverCell(getCoordsFromMouse(e)?.cell ?? null)}
+        onMouseLeave={() => setHoverCell(null)}
+        onClick={handleCanvasClick}
+        aria-label={`Battlefield ${snap.mapName}`}
+        className={`fixed inset-0 block w-full h-full ${
+          castingMeteor ? 'cursor-crosshair' : 'cursor-pointer'
+        }`}
+      />
+
+      {/* Floating Obsidian Glass In-Game HUD Layer */}
+      <div className="fixed inset-0 z-20 pointer-events-none">
+        {/* TOP-LEFT STAT CARD: Unified Obsidian Glass */}
+        <div className="fixed top-3 left-3 flex flex-wrap items-center gap-2 max-w-[calc(100vw-24px)] 2xl:max-w-[46vw] pointer-events-auto hud-shell rounded-2xl px-2.5 py-2 text-xs font-black">
+          {/* Realm Header: Home + Realm Name + Info Badge */}
+          <div className="inline-flex items-center gap-1.5 pr-2 border-r border-white/10">
+            {onExitToTitle && (
+              <button
+                type="button"
+                onClick={onExitToTitle}
+                aria-label="Return to Title Screen"
+                title="Back to Title Screen"
+                className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-white/12 bg-white/5 hover:bg-white/15 text-slate-200 transition cursor-pointer"
+              >
+                <Home className="w-4 h-4" />
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={onExitToTitle}
-              aria-label="Return to Title Screen"
-              title="Back to Title Screen"
-              className="p-1.5 rounded-lg border-2 border-[#4d3720] bg-[#140e09] hover:bg-[#332417] text-amber-200 transition"
+              onClick={() => setStageBriefingOpen(true)}
+              className="h-9 inline-flex items-center gap-2 px-3 rounded-xl bg-white/5 hover:bg-white/12 border border-white/10 text-slate-100 cursor-pointer transition"
+              title="View Stage Briefing & Objectives"
             >
-              <Home className="w-4 h-4" />
+              <span className="truncate max-w-[130px] sm:max-w-none tracking-tight">{snap.mapName}</span>
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-amber-400/15 border border-amber-400/30">
+                <Info className="w-3 h-3 text-amber-300" />
+              </span>
             </button>
-          )}
+          </div>
 
-          <button
-            type="button"
-            onClick={() => setStageBriefingOpen(true)}
-            className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/40 hover:bg-black/60 border border-amber-700/40 text-amber-200 cursor-pointer transition hover:text-white"
-            title="View Stage Story & Objectives"
+          {/* Castle HP Stat */}
+          <div
+            className={`h-9 inline-flex items-center gap-2 px-2.5 rounded-xl bg-[#ef4444]/12 border border-[#f87171]/35 text-rose-100 tabular-nums transition ${
+              hpFlash ? 'animate-hp-flash border-rose-300 bg-rose-500/25' : ''
+            }`}
+            title={`Citadel HP: ${snap.baseHealth} / ${snap.maxBaseHealth}`}
           >
-            <span>{snap.mapName}</span>
-            <Info className="w-3.5 h-3.5 text-amber-400" />
-          </button>
-
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#381418] border border-rose-500/60 text-rose-100 shadow-inner">
-            <Heart className="w-4 h-4 text-rose-500 fill-rose-500" aria-hidden="true" />
-            <span>{snap.baseHealth}</span>
-          </div>
-
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#34270a] border border-amber-400/75 text-amber-200 shadow-inner">
-            <Coins className="w-4 h-4 text-amber-400" aria-hidden="true" />
-            <span>{snap.gold} Coins</span>
-          </div>
-
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#122634] border border-sky-400/50 text-sky-100">
-            <Waves className="w-4 h-4 text-sky-400" aria-hidden="true" />
-            <span>
-              Wave {snap.wave}/{snap.totalWaves}
+            <span className="w-6 h-6 rounded-lg bg-[#ef4444]/20 border border-[#f87171]/40 flex items-center justify-center shrink-0">
+              <Heart className="w-3.5 h-3.5 text-[#f87171] fill-[#ef4444]" aria-hidden="true" />
             </span>
+            <span className="text-sm font-black tracking-tight">{snap.baseHealth}</span>
           </div>
 
-          <div className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#142b19] border border-emerald-500/40 text-emerald-200">
-            <Skull className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
-            <span>{snap.enemiesDefeated}</span>
+          {/* Gold Coins Stat */}
+          <div
+            className="h-9 inline-flex items-center gap-2 px-2.5 rounded-xl bg-[#f59e0b]/12 border border-[#fbbf24]/35 text-amber-100 tabular-nums"
+            title="Available Gold Coins"
+          >
+            <span className="w-6 h-6 rounded-lg bg-[#f59e0b]/20 border border-[#fbbf24]/40 flex items-center justify-center shrink-0">
+              <Coins className="w-3.5 h-3.5 text-[#fbbf24]" aria-hidden="true" />
+            </span>
+            <span className="text-sm font-black tracking-tight text-amber-200">{snap.gold}</span>
+          </div>
+
+          {/* Wave Stat + Bottom Progress Bar */}
+          <div
+            className="relative overflow-hidden h-9 inline-flex items-center gap-2 px-2.5 rounded-xl bg-sky-500/12 border border-sky-400/35 text-sky-100 tabular-nums"
+            title={`Wave ${snap.wave} of ${snap.totalWaves}`}
+          >
+            <span className="w-6 h-6 rounded-lg bg-sky-500/20 border border-sky-400/40 flex items-center justify-center shrink-0">
+              <Waves className="w-3.5 h-3.5 text-sky-300" aria-hidden="true" />
+            </span>
+            <span className="text-xs sm:text-sm font-black tracking-tight">
+              Wave {snap.wave} / {snap.totalWaves}
+            </span>
+            <span
+              className="absolute bottom-0 left-0 h-[3px] bg-gradient-to-r from-sky-400 via-teal-300 to-cyan-300 transition-all duration-300"
+              style={{ width: `${waveProgressPct}%` }}
+            />
+          </div>
+
+          {/* Enemies Remaining Stat (Boss / Final Wave Alert) */}
+          <div
+            className={`h-9 inline-flex items-center gap-2 px-2.5 rounded-xl border tabular-nums transition ${
+              isThreatAlert
+                ? 'bg-amber-500/18 border-amber-400/65 text-amber-100 shadow-[0_0_16px_rgba(245,158,11,0.28)]'
+                : 'bg-emerald-500/10 border-emerald-400/30 text-emerald-100'
+            }`}
+            title="Enemies Remaining (Active + Spawn Queue)"
+          >
+            <span
+              className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 ${
+                isThreatAlert
+                  ? 'bg-rose-500/25 border-amber-400/50'
+                  : 'bg-emerald-500/20 border-emerald-400/35'
+              }`}
+            >
+              <Skull
+                className={`w-3.5 h-3.5 ${isThreatAlert ? 'text-amber-300 animate-pulse' : 'text-emerald-300'}`}
+                aria-hidden="true"
+              />
+            </span>
+            <span className="text-xs sm:text-sm font-black tracking-tight">{enemiesRemaining} Left</span>
+            {hasBossActive && (
+              <span className="px-1.5 py-0.5 rounded-md bg-rose-600/90 text-[9px] font-black tracking-wider text-white uppercase">
+                Boss
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Center: Auto-Wave Timer & Skip-Wave Bonus Button */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {!snap.waveActive && snap.wave < snap.totalWaves && snap.status !== 'victory' && snap.status !== 'defeat' ? (
+        {/* TOP-RIGHT CONTROLS: Clean Single-Row on 2xl+, Neatly Stepped Uniform 36px (h-9) Bars Below */}
+        <div className="fixed top-3 right-3 flex flex-col 2xl:flex-row items-end 2xl:items-center gap-2 pointer-events-none">
+          {/* Combat Group: Wave Status, Auto-Skip, Speed (1x/2x/3x), Pause */}
+          <div className="pointer-events-auto hud-shell rounded-2xl p-1.5 flex items-center gap-1.5 tabular-nums">
+            {!snap.waveActive && snap.wave < snap.totalWaves && snap.status !== 'victory' && snap.status !== 'defeat' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (engineRef.current.skipWaveCountdown()) {
+                    soundFX.waveStart();
+                    setSnap(engineRef.current.getSnapshot());
+                    setToastMsg(
+                      snap.wave > 0 ? 'Early Wave Called! +15 Bonus Coins!' : 'Wave 1 Unleashed!'
+                    );
+                  }
+                }}
+                className="h-9 animate-pulse-beacon inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-black tracking-wide bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-slate-950 border border-emerald-200 shadow cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 fill-slate-950" aria-hidden="true" />
+                <span>
+                  {autoWaveEnabled && autoWaveCountdown > 0
+                    ? `Wave ${snap.wave + 1} (${Math.ceil(autoWaveCountdown)}s) • Skip${snap.wave > 0 ? ' +15' : ''}`
+                    : `Call Wave ${snap.wave + 1}`}
+                </span>
+              </button>
+            ) : (
+              <span className="h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-extrabold bg-emerald-500/15 border border-emerald-400/35 text-emerald-200">
+                <Timer className="w-3.5 h-3.5 animate-spin text-emerald-300" style={{ animationDuration: '4s' }} aria-hidden="true" />
+                <span>Wave {snap.wave} in Combat</span>
+              </span>
+            )}
+
             <button
               type="button"
               onClick={() => {
-                if (engineRef.current.skipWaveCountdown()) {
-                  soundFX.waveStart();
-                  setSnap(engineRef.current.getSnapshot());
-                  setToastMsg(
-                    snap.wave > 0 ? 'Early Wave Called! +15 Bonus Coins!' : 'Wave 1 Unleashed!'
-                  );
-                }
+                engineRef.current.setAutoWave(!autoWaveEnabled);
+                setSnap(engineRef.current.getSnapshot());
               }}
-              className="animate-pulse-beacon inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-black tracking-wide bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-slate-950 border-2 border-emerald-200 shadow-lg cursor-pointer"
+              className={`h-9 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                autoWaveEnabled
+                  ? 'bg-amber-400/20 border-amber-400/70 text-amber-200 shadow-[0_0_10px_rgba(251,191,36,0.2)]'
+                  : 'bg-white/5 border-white/12 text-slate-400 hover:text-slate-200 hover:bg-white/10'
+              }`}
+              title="Toggle automatic wave skip countdown"
             >
-              <Play className="w-3.5 h-3.5 fill-slate-950" aria-hidden="true" />
-              <span>
-                {autoWaveEnabled && autoWaveCountdown > 0
-                  ? `Wave ${snap.wave + 1} in ${Math.ceil(autoWaveCountdown)}s • Skip${snap.wave > 0 ? ' (+15 Coins)' : ''}`
-                  : `Call Wave ${snap.wave + 1}`}
-              </span>
+              Auto-Skip: {autoWaveEnabled ? 'ON' : 'OFF'}
             </button>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold bg-[#1c2b18] border border-emerald-500/40 text-emerald-300">
-              <Timer className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '4s' }} aria-hidden="true" />
-              <span>Wave {snap.wave} in Combat</span>
-            </span>
-          )}
 
-          <button
-            type="button"
-            onClick={() => {
-              engineRef.current.setAutoWave(!autoWaveEnabled);
-              setSnap(engineRef.current.getSnapshot());
-            }}
-            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold border transition ${
-              autoWaveEnabled
-                ? 'bg-amber-400/20 border-amber-400 text-amber-200'
-                : 'bg-[#17110b] border-stone-700 text-stone-400'
-            }`}
-            title="Toggle automatic wave skip countdown"
-          >
-            Auto-Skip: {autoWaveEnabled ? 'ON' : 'OFF'}
-          </button>
-        </div>
+            <div className="h-9 inline-flex rounded-xl border border-white/15 bg-black/25 p-0.5 gap-0.5" role="group" aria-label="Game speed">
+              {([1, 2, 3] as const).map((spd) => (
+                <button
+                  key={spd}
+                  type="button"
+                  onClick={() => {
+                    engineRef.current.setSpeed(spd);
+                    setSnap(engineRef.current.getSnapshot());
+                  }}
+                  className={`px-2.5 h-full rounded-lg text-xs font-black cursor-pointer transition ${
+                    snap.speedMultiplier === spd
+                      ? 'bg-amber-400 text-slate-950 shadow ring-1 ring-amber-200'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  {spd}x
+                </button>
+              ))}
+            </div>
 
-        {/* Right: Speed, Pause, Undo, Sound, Restart */}
-        <div className="flex items-center gap-1.5">
-          <div className="inline-flex rounded-lg border border-amber-700/50 overflow-hidden" role="group" aria-label="Game speed">
-            {([1, 2, 3] as const).map((spd) => (
-              <button
-                key={spd}
-                type="button"
-                onClick={() => {
-                  engineRef.current.setSpeed(spd);
-                  setSnap(engineRef.current.getSnapshot());
-                }}
-                className={`px-2 py-1.5 text-xs font-extrabold ${
-                  snap.speedMultiplier === spd ? 'bg-amber-400 text-slate-950' : 'bg-[#16100b] text-amber-200 hover:bg-[#2a1f16]'
-                }`}
-              >
-                {spd}x
-              </button>
-            ))}
+            <button
+              type="button"
+              disabled={snap.status === 'idle' || snap.status === 'victory' || snap.status === 'defeat'}
+              onClick={() => {
+                engineRef.current.togglePause();
+                setSnap(engineRef.current.getSnapshot());
+              }}
+              className={`h-9 w-9 inline-flex items-center justify-center rounded-xl border transition cursor-pointer disabled:opacity-40 ${
+                snap.status === 'paused'
+                  ? 'bg-amber-400/25 border-amber-400/70 text-amber-200'
+                  : 'bg-white/5 hover:bg-white/15 border-white/12 text-slate-200'
+              }`}
+              aria-label={snap.status === 'paused' ? 'Resume game' : 'Pause game'}
+              title="Pause / Resume (Space)"
+            >
+              {snap.status === 'paused' ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+            </button>
           </div>
 
-          <button
-            type="button"
-            disabled={snap.status === 'idle' || snap.status === 'victory' || snap.status === 'defeat'}
-            onClick={() => {
-              engineRef.current.togglePause();
-              setSnap(engineRef.current.getSnapshot());
-            }}
-            className="p-1.5 rounded-lg bg-[#2b2017] hover:bg-[#3a2b20] disabled:opacity-40 text-amber-100 border border-amber-700/50"
-            aria-label={snap.status === 'paused' ? 'Resume game' : 'Pause game'}
-            title="Pause / Resume (Space)"
-          >
-            {snap.status === 'paused' ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-          </button>
-
-          <button
-            type="button"
-            disabled={snap.dsaStats.undoStackSize === 0}
-            onClick={() => {
-              if (engineRef.current.undoLastPlacement()) {
-                soundFX.sellCoins();
-                setSnap(engineRef.current.getSnapshot());
-                setToastMsg('Refunded last tower placement!');
-              }
-            }}
-            title="Undo Last Tower (Z)"
-            aria-label="Undo last tower"
-            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold bg-[#2b2017] hover:bg-[#3a2b20] disabled:opacity-40 text-amber-300 border border-amber-700/50"
-          >
-            <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>{snap.dsaStats.undoStackSize}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              const next: CameraViewMode =
-                cameraMode === 'isometric'
-                  ? 'orbit'
-                  : cameraMode === 'orbit'
-                  ? 'topdown'
-                  : 'isometric';
-              setCameraMode(next);
-              threeRendererRef.current?.setViewMode(next);
-              setToastMsg(
-                next === 'orbit'
-                  ? '3D Orbit: Click & drag mouse to rotate, wheel to zoom!'
-                  : next === 'topdown'
-                  ? 'Top-down Tactical Camera active'
-                  : 'Isometric 3D Cinematic Camera active'
-              );
-            }}
-            aria-label="Toggle camera view mode"
-            title="Switch Camera: 3D Isometric / 3D Orbit / Top-Down"
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#2b2017] hover:bg-[#3a2b20] text-amber-300 border border-amber-700/50 text-xs font-black shadow transition"
-          >
-            <Box className="w-4 h-4 text-amber-400" aria-hidden="true" />
-            <span>
-              {cameraMode === 'isometric' ? '3D Iso' : cameraMode === 'orbit' ? '3D Orbit' : '2D Top'}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMuted((m) => !m)}
-            aria-label={muted ? 'Unmute sound' : 'Mute sound'}
-            className="p-1.5 rounded-lg bg-[#2b2017] hover:bg-[#3a2b20] text-amber-200 border border-amber-700/50"
-          >
-            {muted ? <VolumeX className="w-4 h-4 text-rose-300" /> : <Volume2 className="w-4 h-4 text-emerald-300" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => resetGame()}
-            aria-label="Restart level"
-            title="Restart Stage"
-            className="p-1.5 rounded-lg bg-[#2b2017] hover:bg-[#3a2b20] text-amber-200 border border-amber-700/50"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Main Centered Battlefield Canvas */}
-      <div className="max-w-[1260px] w-full mx-auto flex-1 flex items-center justify-center">
-        <div
-          className={`relative w-full max-w-[1160px] rounded-2xl border-4 border-[#3a2a19] bg-[#16270e] p-1 shadow-2xl shadow-black/75 ${
-            castingMeteor ? 'cursor-crosshair ring-4 ring-orange-500/70' : ''
-          }`}
-        >
-          <canvas
-            ref={canvasRef}
-            width={mapObj.cols * mapObj.cellSize}
-            height={mapObj.rows * mapObj.cellSize}
-            onMouseMove={(e) => setHoverCell(getCoordsFromMouse(e)?.cell ?? null)}
-            onMouseLeave={() => setHoverCell(null)}
-            onClick={handleCanvasClick}
-            aria-label={`Battlefield ${snap.mapName}`}
-            className="w-full h-auto rounded-xl cursor-pointer"
-          />
-
-          {/* Spell Aim Hint Banner */}
-          {castingMeteor && (
-            <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full border-2 border-orange-300 bg-orange-950/90 text-xs font-black text-orange-200 shadow-xl">
-              METEOR ARMED — Click anywhere on the battlefield to strike! (Esc to cancel)
-            </div>
-          )}
-
-          {/* Paused Overlay */}
-          {snap.status === 'paused' && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl">
-              <div className="animate-pop-in px-7 py-4 rounded-2xl border-2 border-amber-400 bg-[#1c140c]/95 text-center shadow-2xl">
-                <p className="text-xl font-black tracking-widest text-amber-300">GAME PAUSED</p>
-                <p className="text-xs text-amber-100 mt-1">Press Space or click Resume to continue</p>
-              </div>
-            </div>
-          )}
-
-          {/* Kingdom Rush Style Radial Upgrade & Sell Ring around Selected Tower */}
-          {selectedTower && (
-            <div
-              style={getRadialAnchorStyle(selectedTower.row, selectedTower.col)}
-              className="animate-radial-pop absolute z-20 pointer-events-none"
+          {/* Utility Group: Undo, Camera, GFX, Audio, Restart */}
+          <div className="pointer-events-auto hud-shell rounded-2xl p-1.5 flex items-center gap-1.5 tabular-nums">
+            <button
+              type="button"
+              disabled={snap.dsaStats.undoStackSize === 0}
+              onClick={() => {
+                if (engineRef.current.undoLastPlacement()) {
+                  soundFX.sellCoins();
+                  setSnap(engineRef.current.getSnapshot());
+                  setToastMsg('Refunded last tower placement!');
+                }
+              }}
+              title="Undo Last Tower (Z)"
+              aria-label="Undo last tower"
+              className="h-9 inline-flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-extrabold bg-white/5 hover:bg-white/15 disabled:opacity-40 text-amber-200 border border-white/12 cursor-pointer transition"
             >
-              <div className="relative w-40 h-40 rounded-full border-[3px] border-[#3d2914] ring-2 ring-amber-400/60 bg-black/10">
-                {/* TOP: Green Up-Arrow Upgrade + Coin Price */}
-                <button
-                  type="button"
-                  disabled={selectedTower.upgradeCost === 0 || snap.gold < selectedTower.upgradeCost}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (engineRef.current.upgradeTower(selectedTower.id)) {
-                      soundFX.upgradeTower();
-                      setSnap(engineRef.current.getSnapshot());
-                      setToastMsg(`Upgraded ${selectedTower.name} to Lv.${selectedTower.level + 1}!`);
-                    }
-                  }}
-                  className="pointer-events-auto absolute -top-5 left-1/2 -translate-x-1/2 flex flex-col items-center justify-center w-14 h-14 rounded-xl border-2 border-amber-300 bg-gradient-to-b from-emerald-500 to-green-800 hover:from-emerald-400 hover:to-green-700 disabled:grayscale disabled:opacity-65 text-white shadow-xl transition-transform hover:scale-110"
-                  title={
-                    selectedTower.upgradeCost === 0
-                      ? 'Maximum Level Reached'
-                      : `Upgrade Tower (${selectedTower.upgradeCost} Coins)`
-                  }
-                >
-                  <ArrowUp className="w-6 h-6 stroke-[3] text-lime-200" aria-hidden="true" />
-                  <span className="px-1.5 rounded bg-black/80 text-[10px] font-extrabold text-amber-300 border border-amber-500/40">
-                    {selectedTower.upgradeCost === 0 ? 'MAX' : `${selectedTower.upgradeCost}`}
-                  </span>
-                </button>
+              <Undo2 className="w-3.5 h-3.5 text-amber-300" aria-hidden="true" />
+              <span>{snap.dsaStats.undoStackSize}</span>
+            </button>
 
-                {/* BOTTOM: Golden $ Sell Coin Button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    engineRef.current.sellTower(selectedTower.id);
-                    soundFX.sellCoins();
-                    setSnap(engineRef.current.getSnapshot());
-                    setToastMsg(`Sold ${selectedTower.name} for +${selectedTower.sellValue} Coins!`);
-                  }}
-                  className="pointer-events-auto absolute -bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center justify-center w-14 h-14 rounded-xl border-2 border-amber-300 bg-gradient-to-b from-amber-700 to-amber-950 hover:from-amber-600 hover:to-amber-900 text-amber-200 shadow-xl transition-transform hover:scale-110"
-                  title={`Sell for +${selectedTower.sellValue} Coins`}
-                >
-                  <DollarSign className="w-5 h-5 stroke-[2.8] text-amber-300" aria-hidden="true" />
-                  <span className="px-1.5 rounded bg-black/80 text-[10px] font-extrabold text-amber-300 border border-amber-500/40">
-                    +{selectedTower.sellValue}
-                  </span>
-                </button>
-
-                {/* LEFT: Targeting Cycler */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cycleStrategy();
-                  }}
-                  className="pointer-events-auto absolute top-1/2 -left-11 -translate-y-1/2 flex flex-col items-center justify-center px-2 py-1.5 rounded-lg border-2 border-sky-300/80 bg-[#0f2336] hover:bg-[#16344f] text-sky-100 shadow-lg text-[10px] font-extrabold"
-                  title="Cycle Target Priority"
-                >
-                  <Crosshair className="w-3.5 h-3.5 text-sky-300 mb-0.5" aria-hidden="true" />
-                  <span>
-                    {TARGETING_OPTIONS.find((o) => o.value === selectedTower.targetingStrategy)?.short ?? 'First'}
-                  </span>
-                </button>
-
-                {/* RIGHT: Stats + Close */}
-                <div className="pointer-events-auto absolute top-1/2 -right-14 -translate-y-1/2 flex items-center gap-1 px-2 py-1.5 rounded-lg border-2 border-amber-400/70 bg-[#1a130d]/95 text-[10px] font-bold text-amber-100 shadow-lg">
-                  <div className="leading-tight">
-                    <div className="text-amber-300">Lv.{selectedTower.level}</div>
-                    <div>{selectedTower.damage} DMG</div>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Close ring"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      engineRef.current.selectTower(null);
-                      setSnap(engineRef.current.getSnapshot());
-                    }}
-                    className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Kingdom Rush Style Radial 6-Tower Build Wheel on Empty Plot */}
-          {buildPlotCell && !selectedTower && (
-            <div
-              style={getRadialAnchorStyle(buildPlotCell.row, buildPlotCell.col)}
-              className="animate-radial-pop absolute z-20 pointer-events-none"
+            <button
+              type="button"
+              onClick={() => {
+                const next: CameraViewMode =
+                  cameraMode === 'isometric'
+                    ? 'orbit'
+                    : cameraMode === 'orbit'
+                    ? 'topdown'
+                    : 'isometric';
+                setCameraMode(next);
+                threeRendererRef.current?.setViewMode(next);
+                setToastMsg(
+                  next === 'orbit'
+                    ? '3D Orbit: Click & drag mouse to rotate, wheel to zoom!'
+                    : next === 'topdown'
+                    ? 'Top-down Tactical Camera active'
+                    : 'Isometric 3D Cinematic Camera active'
+                );
+              }}
+              aria-label="Toggle camera view mode"
+              title="Switch Camera: 3D Isometric / 3D Orbit / Top-Down"
+              className="h-9 inline-flex items-center gap-1.5 px-2.5 rounded-xl bg-white/5 hover:bg-white/15 text-amber-200 border border-white/12 text-xs font-black transition cursor-pointer"
             >
-              <div className="relative w-36 h-36 rounded-full border-[3px] border-amber-400/70 bg-black/20">
-                {(Object.keys(TOWER_CATALOG) as TowerType[]).map((type, idx) => {
-                  const cfg = TOWER_CATALOG[type];
-                  const pos = RADIAL_OFFSETS[idx];
-                  const affordable = snap.gold >= cfg.cost;
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      disabled={!affordable}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        buildFromRadial(type);
-                      }}
-                      style={{
-                        transform: `translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,
-                      }}
-                      className="pointer-events-auto absolute left-1/2 top-1/2 w-14 py-1 rounded-xl border-2 border-amber-300 bg-[#1e160f]/95 hover:bg-[#2d2116] disabled:opacity-45 text-center shadow-xl transition-transform hover:scale-110"
-                      title={`${cfg.name} (${cfg.cost} Coins)`}
-                    >
-                      <span
-                        className="mx-auto block w-3.5 h-3.5 rounded-full border border-black"
-                        style={{ backgroundColor: cfg.color }}
-                      />
-                      <span className="block text-[10px] font-extrabold text-amber-100 leading-tight mt-0.5">
-                        {SHORT_TOWER_NAMES[type]}
-                      </span>
-                      <span className="block text-[9px] font-extrabold text-amber-300 bg-black/75 rounded mx-1">
-                        {cfg.cost}
-                      </span>
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  aria-label="Cancel build wheel"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setBuildPlotCell(null);
-                  }}
-                  className="pointer-events-auto absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-rose-900/90 border border-rose-400 text-rose-100 flex items-center justify-center shadow-md hover:bg-rose-700"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
+              <Box className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" />
+              <span>
+                {cameraMode === 'isometric' ? '3D Iso' : cameraMode === 'orbit' ? '3D Orbit' : '2D Top'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const next: GraphicsQuality =
+                  localQuality === 'high' ? 'medium' : localQuality === 'medium' ? 'low' : 'high';
+                setLocalQuality(next);
+                onChangeGraphicsQuality?.(next);
+                setToastMsg(
+                  next === 'high'
+                    ? 'Graphics: High (2048px Shadows + Bloom + SMAA)'
+                    : next === 'medium'
+                    ? 'Graphics: Medium (1024px Shadows + SMAA)'
+                    : 'Graphics: Low (Max FPS, Shadows Off)'
+                );
+              }}
+              aria-label="Cycle graphics quality"
+              title="Switch 3D Graphics Quality (Low / Medium / High)"
+              className="h-9 inline-flex items-center gap-1.5 px-2.5 rounded-xl bg-cyan-500/12 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-400/30 text-xs font-black transition cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-300" aria-hidden="true" />
+              <span>{localQuality === 'high' ? 'GFX: High' : localQuality === 'medium' ? 'GFX: Med' : 'GFX: Low'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMuted((m) => !m)}
+              aria-label={muted ? 'Unmute sound' : 'Mute sound'}
+              title={muted ? 'Unmute Audio' : 'Mute Audio'}
+              className="h-9 w-9 inline-flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/15 text-slate-200 border border-white/12 cursor-pointer transition"
+            >
+              {muted ? <VolumeX className="w-4 h-4 text-rose-300" /> : <Volume2 className="w-4 h-4 text-emerald-300" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => resetGame()}
+              aria-label="Restart level"
+              title="Restart Stage"
+              className="h-9 w-9 inline-flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/15 text-slate-200 border border-white/12 cursor-pointer transition"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* Bottom Game Action Dock: Hero Champions + Mage Spells */}
-      <div className="max-w-[1260px] w-full mx-auto rounded-2xl border-2 border-[#3b2916] bg-gradient-to-b from-[#231910] to-[#130d08] px-3 py-2 flex flex-wrap items-center justify-between gap-2 shadow-xl">
-        {/* Quick Hero Deck */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              setPlacingType(null);
-              setCastingMeteor(false);
-            }}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-extrabold border transition ${
-              placingType === null && !castingMeteor
-                ? 'bg-amber-400 text-slate-950 border-amber-200 shadow'
-                : 'bg-[#2a2017] text-amber-200 border-amber-800 hover:bg-[#36291e]'
-            }`}
+        {/* Spell Aim Hint Banner */}
+        {castingMeteor && (
+          <div className="pointer-events-none fixed top-20 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full border border-orange-300/70 bg-[rgba(40,16,8,0.8)] backdrop-blur-[10px] text-xs font-black text-orange-200 shadow-xl">
+            METEOR ARMED — Click anywhere on the battlefield to strike! (Esc to cancel)
+          </div>
+        )}
+
+        {/* Paused Overlay */}
+        {snap.status === 'paused' && (
+          <div className="pointer-events-none fixed inset-0 flex items-center justify-center bg-black/45">
+            <div className="animate-pop-in px-7 py-4 rounded-2xl border border-amber-400/60 bg-[rgba(15,20,18,0.85)] backdrop-blur-[10px] text-center shadow-2xl">
+              <p className="text-xl font-black tracking-widest text-amber-300">GAME PAUSED</p>
+              <p className="text-xs text-amber-100 mt-1">Press Space or click Resume to continue</p>
+            </div>
+          </div>
+        )}
+
+        {/* Radial Upgrade & Sell Ring around Selected Tower */}
+        {selectedTower && (
+          <div
+            style={getRadialAnchorStyle(selectedTower.row, selectedTower.col)}
+            className="animate-radial-pop fixed z-30 pointer-events-none"
           >
-            Summon Wheel
-          </button>
-
-          {(Object.keys(TOWER_CATALOG) as TowerType[]).map((type, idx) => {
-            const t = TOWER_CATALOG[type];
-            const active = placingType === type;
-            const affordable = snap.gold >= t.cost;
-            return (
+            <div className="relative w-40 h-40 rounded-full border-[3px] border-[#3d2914] ring-2 ring-amber-400/60 bg-black/15 backdrop-blur-[2px]">
+              {/* TOP: Green Up-Arrow Upgrade + Coin Price */}
               <button
-                key={type}
                 type="button"
-                onClick={() => {
-                  setBuildPlotCell(null);
-                  setCastingMeteor(false);
-                  setPlacingType(active ? null : type);
+                disabled={selectedTower.upgradeCost === 0 || snap.gold < selectedTower.upgradeCost}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (engineRef.current.upgradeTower(selectedTower.id)) {
+                    soundFX.upgradeTower();
+                    setSnap(engineRef.current.getSnapshot());
+                    setToastMsg(`Upgraded ${selectedTower.name} to Lv.${selectedTower.level + 1}!`);
+                  }
                 }}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${
-                  active
-                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-100 shadow-inner scale-105'
-                    : 'bg-[#17110c] border-amber-900/70 text-amber-100 hover:border-amber-500'
-                } ${!affordable ? 'opacity-50' : ''}`}
-                title={`${t.name} [Key ${idx + 1}]`}
+                className="pointer-events-auto absolute -top-5 left-1/2 -translate-x-1/2 flex flex-col items-center justify-center w-14 h-14 rounded-xl border-2 border-amber-300 bg-gradient-to-b from-emerald-500 to-green-800 hover:from-emerald-400 hover:to-green-700 disabled:grayscale disabled:opacity-65 text-white shadow-xl transition-transform hover:scale-110 cursor-pointer"
+                title={
+                  selectedTower.upgradeCost === 0
+                    ? 'Maximum Level Reached'
+                    : `Upgrade Tower (${selectedTower.upgradeCost} Coins)`
+                }
               >
-                <span className="w-2.5 h-2.5 rounded-full border border-black" style={{ backgroundColor: t.color }} />
-                <span>{SHORT_TOWER_NAMES[type]}</span>
-                <span className="inline-flex items-center gap-0.5 text-amber-300 font-extrabold">
-                  <Coins className="w-3 h-3" aria-hidden="true" />
-                  {t.cost}
+                <ArrowUp className="w-6 h-6 stroke-[3] text-lime-200" aria-hidden="true" />
+                <span className="px-1.5 rounded bg-black/80 text-[10px] font-extrabold text-amber-300 border border-amber-500/40">
+                  {selectedTower.upgradeCost === 0 ? 'MAX' : `${selectedTower.upgradeCost}`}
                 </span>
               </button>
-            );
-          })}
+
+              {/* BOTTOM: Golden $ Sell Coin Button */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  engineRef.current.sellTower(selectedTower.id);
+                  soundFX.sellCoins();
+                  setSnap(engineRef.current.getSnapshot());
+                  setToastMsg(`Sold ${selectedTower.name} for +${selectedTower.sellValue} Coins!`);
+                }}
+                className="pointer-events-auto absolute -bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center justify-center w-14 h-14 rounded-xl border-2 border-amber-300 bg-gradient-to-b from-amber-700 to-amber-950 hover:from-amber-600 hover:to-amber-900 text-amber-200 shadow-xl transition-transform hover:scale-110 cursor-pointer"
+                title={`Sell for +${selectedTower.sellValue} Coins`}
+              >
+                <DollarSign className="w-5 h-5 stroke-[2.8] text-amber-300" aria-hidden="true" />
+                <span className="px-1.5 rounded bg-black/80 text-[10px] font-extrabold text-amber-300 border border-amber-500/40">
+                  +{selectedTower.sellValue}
+                </span>
+              </button>
+
+              {/* LEFT: Targeting Cycler */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cycleStrategy();
+                }}
+                className="pointer-events-auto absolute top-1/2 -left-11 -translate-y-1/2 flex flex-col items-center justify-center px-2 py-1.5 rounded-lg border-2 border-sky-300/80 bg-[#0f2336]/90 hover:bg-[#16344f] text-sky-100 shadow-lg text-[10px] font-extrabold cursor-pointer"
+                title="Cycle Target Priority"
+              >
+                <Crosshair className="w-3.5 h-3.5 text-sky-300 mb-0.5" aria-hidden="true" />
+                <span>
+                  {TARGETING_OPTIONS.find((o) => o.value === selectedTower.targetingStrategy)?.short ?? 'First'}
+                </span>
+              </button>
+
+              {/* RIGHT: Stats + Close */}
+              <div className="pointer-events-auto absolute top-1/2 -right-14 -translate-y-1/2 flex items-center gap-1 px-2 py-1.5 rounded-lg border-2 border-amber-400/70 bg-[#1a130d]/95 text-[10px] font-bold text-amber-100 shadow-lg">
+                <div className="leading-tight">
+                  <div className="text-amber-300">Lv.{selectedTower.level}</div>
+                  <div>{selectedTower.damage} DMG</div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close ring"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    engineRef.current.selectTower(null);
+                    setSnap(engineRef.current.getSnapshot());
+                  }}
+                  className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Radial 6-Tower Build Wheel on Empty Plot */}
+        {buildPlotCell && !selectedTower && (
+          <div
+            style={getRadialAnchorStyle(buildPlotCell.row, buildPlotCell.col)}
+            className="animate-radial-pop fixed z-30 pointer-events-none"
+          >
+            <div className="relative w-36 h-36 rounded-full border-[3px] border-amber-400/70 bg-black/20 backdrop-blur-[2px]">
+              {(Object.keys(TOWER_CATALOG) as TowerType[]).map((type, idx) => {
+                const cfg = TOWER_CATALOG[type];
+                const pos = RADIAL_OFFSETS[idx];
+                const affordable = snap.gold >= cfg.cost;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    disabled={!affordable}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      buildFromRadial(type);
+                    }}
+                    style={{
+                      transform: `translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,
+                    }}
+                    className="pointer-events-auto absolute left-1/2 top-1/2 w-14 py-1 rounded-xl border-2 border-amber-300 bg-[#1e160f]/95 hover:bg-[#2d2116] disabled:opacity-45 text-center shadow-xl transition-transform hover:scale-110 cursor-pointer"
+                    title={`${cfg.name} (${cfg.cost} Coins)`}
+                  >
+                    <span
+                      className="mx-auto block w-3.5 h-3.5 rounded-full border border-black"
+                      style={{ backgroundColor: cfg.color }}
+                    />
+                    <span className="block text-[10px] font-extrabold text-amber-100 leading-tight mt-0.5">
+                      {SHORT_TOWER_NAMES[type]}
+                    </span>
+                    <span className="block text-[9px] font-extrabold text-amber-300 bg-black/75 rounded mx-1">
+                      {cfg.cost}
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                aria-label="Cancel build wheel"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setBuildPlotCell(null);
+                }}
+                className="pointer-events-auto absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-rose-900/90 border border-rose-400 text-rose-100 flex items-center justify-center shadow-md hover:bg-rose-700 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Auto-fading Compact Status Toast */}
+        {toastVisible && toastMsg && (
+          <div className="pointer-events-none fixed bottom-16 left-1/2 -translate-x-1/2 z-20 max-w-[90vw]">
+            <p
+              className="px-3 py-1 rounded-full border border-white/15 bg-[rgba(15,20,18,0.72)] backdrop-blur-[10px] text-[11px] font-semibold text-amber-200/95 shadow-lg truncate"
+              aria-live="polite"
+            >
+              {toastMsg}
+            </p>
+          </div>
+        )}
+
+        {/* BOTTOM-CENTER DOCK: Sculpted Dark-Glass Unit Cards (18px radius) */}
+        <div className="fixed bottom-2.5 left-1/2 -translate-x-1/2 max-w-[calc(100vw-24px)] lg:max-w-[calc(100vw-300px)] pointer-events-auto">
+          <div className="hud-shell rounded-[18px] px-2.5 py-2 flex items-stretch gap-2 overflow-x-auto tabular-nums">
+            <button
+              type="button"
+              onClick={() => {
+                setPlacingType(null);
+                setCastingMeteor(false);
+              }}
+              title="Click any buildable green tile to open the radial summon wheel [Esc]"
+              className={`shrink-0 px-3 py-1.5 rounded-xl border transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                placingType === null && !castingMeteor
+                  ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-slate-950 border-amber-200 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
+                  : 'bg-white/5 text-amber-200 border-white/12 hover:bg-white/10'
+              }`}
+            >
+              <Compass className="w-4 h-4" aria-hidden="true" />
+              <span className="text-[10px] font-black tracking-wide uppercase">Wheel</span>
+            </button>
+
+            {(Object.keys(TOWER_CATALOG) as TowerType[]).map((type, idx) => {
+              const t = TOWER_CATALOG[type];
+              const active = placingType === type;
+              const affordable = snap.gold >= t.cost;
+              const Icon = TOWER_ICONS[type];
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => {
+                    setBuildPlotCell(null);
+                    setCastingMeteor(false);
+                    setPlacingType(active ? null : type);
+                  }}
+                  className={`relative shrink-0 min-w-[104px] px-2.5 py-1.5 rounded-xl border transition flex items-center gap-2 cursor-pointer ${
+                    active
+                      ? 'bg-emerald-500/25 border-emerald-400 text-emerald-50 shadow-[0_0_18px_rgba(52,211,153,0.35)] -translate-y-0.5'
+                      : affordable
+                      ? 'bg-white/[0.06] border-white/15 text-slate-100 hover:border-amber-400/70 hover:bg-white/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                      : 'bg-black/35 border-white/10 text-slate-400 opacity-[0.48]'
+                  }`}
+                  title={`${t.name} [Key ${idx + 1}] — DMG ${t.damage} • RNG ${t.range} • ${t.specialAbility}`}
+                >
+                  {/* Hotkey Pill */}
+                  <span className="absolute -top-1 -right-1 px-1.5 py-0 rounded-md bg-slate-950/95 border border-white/20 text-[9px] font-black text-slate-200 leading-tight tabular-nums">
+                    {idx + 1}
+                  </span>
+
+                  {/* Colored Icon Badge */}
+                  <span
+                    className="shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center shadow-inner"
+                    style={{
+                      backgroundColor: `${t.color}24`,
+                      borderColor: active ? '#34d399' : `${t.color}88`,
+                    }}
+                  >
+                    {affordable ? (
+                      <Icon className="w-3.5 h-3.5" style={{ color: t.color }} aria-hidden="true" />
+                    ) : (
+                      <Lock className="w-3 h-3 text-slate-400" aria-hidden="true" />
+                    )}
+                  </span>
+
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="text-[11px] font-extrabold tracking-tight">{SHORT_TOWER_NAMES[type]}</span>
+                    <span
+                      className={`inline-flex items-center gap-0.5 text-[10px] font-black tabular-nums ${
+                        affordable ? 'text-amber-300' : 'text-rose-300/85'
+                      }`}
+                    >
+                      <Coins className="w-2.5 h-2.5" aria-hidden="true" />
+                      {t.cost}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+
+            {/* Inline spells on narrow screens (< lg) */}
+            <div className="flex lg:hidden items-center gap-1.5 pl-2 border-l border-white/12 shrink-0">
+              <button
+                type="button"
+                disabled={meteorCd > 0}
+                onClick={() => {
+                  setPlacingType(null);
+                  setBuildPlotCell(null);
+                  setCastingMeteor((v) => !v);
+                }}
+                className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-black inline-flex items-center gap-1 transition cursor-pointer tabular-nums ${
+                  castingMeteor
+                    ? 'border-yellow-300 bg-orange-600 text-white shadow-lg shadow-orange-500/40'
+                    : meteorCd > 0
+                    ? 'border-white/10 bg-black/45 text-slate-400'
+                    : 'border-orange-400/80 bg-gradient-to-b from-orange-500 to-red-700 text-white'
+                }`}
+                title="Meteor Strike AoE [Q]"
+              >
+                <Flame className="w-3.5 h-3.5 text-yellow-200" aria-hidden="true" />
+                <span>{meteorCd > 0 ? `${Math.ceil(meteorCd)}s` : 'Q'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={frostCd > 0}
+                onClick={() => {
+                  if (engineRef.current.castFrostNova()) {
+                    soundFX.upgradeTower();
+                    setSnap(engineRef.current.getSnapshot());
+                    setToastMsg('Frost Nova chilled all enemies across the realm!');
+                  }
+                }}
+                className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-black inline-flex items-center gap-1 transition cursor-pointer tabular-nums ${
+                  frostCd > 0
+                    ? 'border-white/10 bg-black/45 text-slate-400'
+                    : 'border-sky-300/80 bg-gradient-to-b from-sky-500 to-blue-800 text-white'
+                }`}
+                title="Frost Nova [E]"
+              >
+                <Snowflake className="w-3.5 h-3.5 text-sky-100" aria-hidden="true" />
+                <span>{frostCd > 0 ? `${Math.ceil(frostCd)}s` : 'E'}</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Status Toast */}
-        <p className="hidden xl:block text-xs font-semibold text-amber-200/90" aria-live="polite">
-          {toastMsg}
-        </p>
-
-        {/* Active Mage Spell Abilities (Meteor Strike & Frost Nova) */}
-        <div className="flex items-center gap-2">
+        {/* BOTTOM-RIGHT SPELL PILL (Desktop >= lg): Vibrant Tactile Spell Triggers */}
+        <div className="hidden lg:flex fixed bottom-2.5 right-3 pointer-events-auto hud-shell rounded-[18px] p-2 items-center gap-2 tabular-nums">
           <button
             type="button"
             disabled={meteorCd > 0}
@@ -864,17 +1078,17 @@ export const PlayGame: React.FC<PlayGameProps> = ({
               setBuildPlotCell(null);
               setCastingMeteor((v) => !v);
             }}
-            className={`px-3 py-1.5 rounded-xl border-2 text-xs font-black inline-flex items-center gap-1.5 transition ${
+            className={`h-10 px-3.5 rounded-xl border text-xs font-black inline-flex items-center gap-2 transition cursor-pointer ${
               castingMeteor
-                ? 'border-yellow-300 bg-orange-600 text-white shadow-lg shadow-orange-500/40 scale-105'
+                ? 'border-yellow-200 bg-orange-600 text-white shadow-[0_0_20px_rgba(249,115,22,0.65)] scale-105'
                 : meteorCd > 0
-                ? 'border-stone-700 bg-stone-900 text-stone-400'
-                : 'border-orange-400 bg-gradient-to-b from-orange-500 to-red-700 text-white hover:brightness-110 shadow-md'
+                ? 'border-white/10 bg-black/50 text-slate-400 cursor-not-allowed'
+                : 'border-orange-300/80 bg-gradient-to-b from-orange-500 to-red-700 text-white hover:brightness-110 shadow-[0_4px_14px_rgba(239,68,68,0.4)]'
             }`}
             title="Meteor Strike AoE [Q] — Click button then click anywhere on the battlefield"
           >
             <Flame className="w-4 h-4 text-yellow-200" aria-hidden="true" />
-            <span>{meteorCd > 0 ? `${Math.ceil(meteorCd)}s` : 'Meteor [Q]'}</span>
+            <span>{meteorCd > 0 ? `Meteor ${Math.ceil(meteorCd)}s` : 'Meteor [Q]'}</span>
           </button>
 
           <button
@@ -887,15 +1101,15 @@ export const PlayGame: React.FC<PlayGameProps> = ({
                 setToastMsg('Frost Nova chilled all enemies across the realm!');
               }
             }}
-            className={`px-3 py-1.5 rounded-xl border-2 text-xs font-black inline-flex items-center gap-1.5 transition ${
+            className={`h-10 px-3.5 rounded-xl border text-xs font-black inline-flex items-center gap-2 transition cursor-pointer ${
               frostCd > 0
-                ? 'border-stone-700 bg-stone-900 text-stone-400'
-                : 'border-sky-300 bg-gradient-to-b from-sky-500 to-blue-800 text-white hover:brightness-110 shadow-md'
+                ? 'border-white/10 bg-black/50 text-slate-400 cursor-not-allowed'
+                : 'border-sky-300/85 bg-gradient-to-b from-sky-500 to-blue-800 text-white hover:brightness-110 shadow-[0_4px_14px_rgba(56,189,248,0.4)]'
             }`}
             title="Frost Nova [E] — Freeze & slow every invader on the battlefield"
           >
             <Snowflake className="w-4 h-4 text-sky-100" aria-hidden="true" />
-            <span>{frostCd > 0 ? `${Math.ceil(frostCd)}s` : 'Frost [E]'}</span>
+            <span>{frostCd > 0 ? `Frost ${Math.ceil(frostCd)}s` : 'Frost [E]'}</span>
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { DifficultyLevel, PageRoute, SortAlgorithmType } from './types/game';
+import { DifficultyLevel, GraphicsQuality, PageRoute, SortAlgorithmType } from './types/game';
 import { Layout } from './components/Layout';
 import { DiagramsModal } from './components/DiagramsModal';
 import { GameHistoryRecord, HomeDashboard, PlayerProfileData } from './pages/HomeDashboard';
@@ -29,6 +29,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   benchmarkEngine: 'cpp',
   reducedMotion: false,
   showSpatialGrid: false,
+  graphicsQuality: 'high',
 };
 
 export function App() {
@@ -65,6 +66,8 @@ export function App() {
           benchmarkEngine: raw.benchmarkEngine === 'ts' ? 'ts' : 'cpp',
           reducedMotion: raw.reducedMotion === 'true',
           showSpatialGrid: raw.showSpatialGrid === 'true',
+          graphicsQuality:
+            raw.graphicsQuality === 'low' || raw.graphicsQuality === 'medium' ? raw.graphicsQuality : 'high',
         });
       }
     } catch {
@@ -88,6 +91,7 @@ export function App() {
         benchmarkEngine: next.benchmarkEngine,
         reducedMotion: String(next.reducedMotion),
         showSpatialGrid: String(next.showSpatialGrid),
+        graphicsQuality: next.graphicsQuality,
       }),
     });
   };
@@ -106,6 +110,7 @@ export function App() {
             recentGames={sessions}
             selectedMapId={selectedMapId}
             selectedDifficulty={selectedDifficulty}
+            graphicsQuality={settings.graphicsQuality}
             onStartBattle={(mapId, diff) => {
               setSelectedMapId(mapId);
               setSelectedDifficulty(diff);
@@ -122,6 +127,10 @@ export function App() {
             defaultDifficulty={selectedDifficulty}
             defaultSortAlgo={settings.defaultSortAlgo}
             showSpatialGridDefault={settings.showSpatialGrid}
+            graphicsQuality={settings.graphicsQuality}
+            onChangeGraphicsQuality={(q) => {
+              void handleSaveSettings({ ...settings, graphicsQuality: q });
+            }}
             onExitToTitle={() => setRoute('home')}
             onSessionSaved={() => {
               void loadData();

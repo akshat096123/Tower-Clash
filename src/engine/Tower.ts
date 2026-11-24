@@ -1,4 +1,12 @@
 import { TargetingStrategyType, TowerSnapshot, TowerType } from '../types/game';
+import {
+  MAX_TOWER_LEVEL,
+  TOWER_DAMAGE_MULTS,
+  TOWER_RANGE_MULTS,
+  TOWER_SELL_REFUND_RATE,
+  TOWER_SPEED_MULTS,
+  TOWER_UPGRADE_COST_MULTS,
+} from './balance';
 import { Enemy } from './Enemy';
 
 export interface TowerCatalogEntry {
@@ -17,68 +25,68 @@ export const TOWER_CATALOG: Record<TowerType, TowerCatalogEntry> = {
   basic: {
     type: 'basic',
     name: 'Elven Marksman',
-    cost: 70,
-    damage: 30,
-    attackSpeed: 1.3,
-    range: 150,
+    cost: 75,
+    damage: 28,
+    attackSpeed: 1.25,
+    range: 155,
     specialAbility: 'Overcharge Volley: Every 5th shot deals 2x damage',
     color: '#22c55e',
-    description: 'Master elven archer firing rapid piercing arrows with deadly overcharge bursts.',
-  },
-  sniper: {
-    type: 'sniper',
-    name: 'Shadow Ranger',
-    cost: 120,
-    damage: 120,
-    attackSpeed: 0.45,
-    range: 280,
-    specialAbility: 'Armor Piercing: Ignores 80% enemy armor',
-    color: '#06b6d4',
-    description: 'Cloaked master sniper delivering extreme long-range kinetic headshots that pierce heavy armor.',
+    description: 'Reliable archer firing crisp arrows with every 5th shot dealing 2x overcharge damage.',
   },
   rapid: {
     type: 'rapid',
     name: 'Crossbow Gunslinger',
-    cost: 95,
+    cost: 100,
     damage: 14,
-    attackSpeed: 4.4,
-    range: 135,
-    specialAbility: 'Storm Barrage: High-velocity twin bolts',
+    attackSpeed: 3.6,
+    range: 138,
+    specialAbility: 'Storm Barrage: Rapid-fire bolts shred unarmored scouts & swarms',
     color: '#eab308',
-    description: 'Dual-wielding repeating crossbow hero releasing a relentless torrent of bolts.',
+    description: 'Dual-wielding crossbow hero unleashing high-velocity bolts against fast unarmored foes.',
+  },
+  slow: {
+    type: 'slow',
+    name: 'Frost Templar',
+    cost: 95,
+    damage: 22,
+    attackSpeed: 1.2,
+    range: 145,
+    specialAbility: 'Glacial Shockwave: 55px AoE slow (40%–55% for 2.6s)',
+    color: '#38bdf8',
+    description: 'Armored frost paladin driving runic shockwaves to slow packs and amplify team DPS.',
+  },
+  sniper: {
+    type: 'sniper',
+    name: 'Shadow Ranger',
+    cost: 125,
+    damage: 105,
+    attackSpeed: 0.52,
+    range: 290,
+    specialAbility: 'Armor Piercing: Long-range shot ignoring 80% armor',
+    color: '#06b6d4',
+    description: 'Cloaked marksman delivering extreme-range piercing shots that punch through armored tanks.',
   },
   splash: {
     type: 'splash',
     name: 'Dwarf Bombardier',
     cost: 135,
-    damage: 56,
-    attackSpeed: 0.75,
-    range: 170,
-    specialAbility: 'Concussion Blast: 75px area-of-effect splash',
+    damage: 42,
+    attackSpeed: 0.78,
+    range: 165,
+    specialAbility: 'Concussion Blast: 75px–101px AoE mortar explosion',
     color: '#ef4444',
-    description: 'Stout dwarven demolitionist launching heavy explosive shells that devastate clustered hordes.',
-  },
-  slow: {
-    type: 'slow',
-    name: 'Frost Templar',
-    cost: 90,
-    damage: 18,
-    attackSpeed: 1.15,
-    range: 145,
-    specialAbility: 'Glacial Shockwave: Slows movement by 45% for 2.6s',
-    color: '#38bdf8',
-    description: 'Armored ice knight driving a runic frost blade into the ground to freeze enemy footing.',
+    description: 'Heavy dwarven mortar dealing modest single-target damage but devastating clustered packs.',
   },
   laser: {
     type: 'laser',
     name: 'Arcane Sorceress',
     cost: 155,
-    damage: 48,
-    attackSpeed: 2.8,
+    damage: 21,
+    attackSpeed: 2.5,
     range: 180,
-    specialAbility: 'Prismatic Ray: Continuous beam + 20 DPS thermal burn',
+    specialAbility: 'Prismatic Ray: Armor-piercing beam + 20–44 DPS thermal burn',
     color: '#a855f7',
-    description: 'High wizardess hovering in the air channeling a continuous beam of concentrated mystic fire.',
+    description: 'High wizardess channeling a piercing arcane ray that melts armored tanks and bosses.',
   },
 };
 
@@ -146,25 +154,34 @@ export abstract class Tower {
   }
 
   get damage(): number {
-    const levelMult = 1 + (this.level - 1) * 0.45;
+    const idx = Math.min(TOWER_DAMAGE_MULTS.length - 1, this.level - 1);
+    const levelMult = TOWER_DAMAGE_MULTS[idx];
     const boostMult = this.resourceBoost ? 1.2 : 1.0;
     return Math.round(this.baseDamage * levelMult * boostMult);
   }
 
   get attackSpeed(): number {
-    return Number((this.baseAttackSpeed * (1 + (this.level - 1) * 0.16)).toFixed(2));
+    const idx = Math.min(TOWER_SPEED_MULTS.length - 1, this.level - 1);
+    return Number((this.baseAttackSpeed * TOWER_SPEED_MULTS[idx]).toFixed(2));
   }
 
   get range(): number {
-    return Math.round(this.baseRange * (1 + (this.level - 1) * 0.1));
+    const idx = Math.min(TOWER_RANGE_MULTS.length - 1, this.level - 1);
+    return Math.round(this.baseRange * TOWER_RANGE_MULTS[idx]);
   }
 
   get upgradeCost(): number {
-    return this.level >= 4 ? 0 : Math.round(this.baseCost * (0.75 * this.level));
+    if (this.level >= MAX_TOWER_LEVEL) return 0;
+    const mult = TOWER_UPGRADE_COST_MULTS[this.level - 1] ?? 1.55;
+    return Math.round(this.baseCost * mult);
+  }
+
+  get investedGold(): number {
+    return this.totalInvested;
   }
 
   get sellValue(): number {
-    return Math.round(this.totalInvested * 0.7);
+    return Math.round(this.totalInvested * TOWER_SELL_REFUND_RATE);
   }
 
   get upgradeLevel(): number {
@@ -172,12 +189,12 @@ export abstract class Tower {
   }
 
   canUpgrade(): boolean {
-    return this.level < 4;
+    return this.level < MAX_TOWER_LEVEL;
   }
 
   upgrade(): number {
     const cost = this.upgradeCost;
-    if (this.level < 4) {
+    if (this.level < MAX_TOWER_LEVEL) {
       this.level++;
       this.totalInvested += cost;
     }
@@ -185,7 +202,9 @@ export abstract class Tower {
   }
 
   tickCooldown(dt: number): void {
-    if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.cooldown > 0) {
+      this.cooldown -= dt;
+    }
   }
 
   isReady(): boolean {
@@ -195,7 +214,9 @@ export abstract class Tower {
   abstract executeAttack(target: Enemy): AttackEvent;
 
   protected resetCooldown(): void {
-    this.cooldown = 1 / this.attackSpeed;
+    const period = 1 / this.attackSpeed;
+    // Carry sub-step negative overflow cleanly so 1x/2x/3x speeds match DPS
+    this.cooldown = Math.max(0, this.cooldown + period);
     this.shotsFired++;
     this.lastTargetId = null;
   }
@@ -222,7 +243,7 @@ export abstract class Tower {
       damageDealt: Math.round(this.damageDealt),
       resourceBoost: this.resourceBoost,
       lastTargetId: this.lastTargetId,
-      attackCooldown: this.cooldown,
+      attackCooldown: Math.max(0, this.cooldown),
       shotsFired: this.shotsFired,
     };
   }
@@ -301,7 +322,7 @@ export class SplashTower extends Tower {
       target,
       color: this.color,
       damage: this.damage,
-      splashRadius: 70 + (this.level - 1) * 10,
+      splashRadius: 75 + (this.level - 1) * 13,
       isLaser: false,
       armorPiercing: false,
     };
@@ -316,16 +337,17 @@ export class SlowTower extends Tower {
   executeAttack(target: Enemy): AttackEvent {
     this.resetCooldown();
     this.lastTargetId = target.id;
+    const slowFactors = [0.6, 0.52, 0.45];
     return {
       towerId: this.id,
       target,
       color: this.color,
       damage: this.damage,
-      splashRadius: 50,
+      splashRadius: 55 + (this.level - 1) * 8,
       isLaser: false,
       armorPiercing: false,
-      slowFactor: 0.55 - (this.level - 1) * 0.05,
-      slowDuration: 2.5,
+      slowFactor: slowFactors[Math.min(slowFactors.length - 1, this.level - 1)],
+      slowDuration: 2.6,
     };
   }
 }
@@ -342,11 +364,11 @@ export class LaserTower extends Tower {
       towerId: this.id,
       target,
       color: this.color,
-      damage: Math.round(this.damage / 2.2),
+      damage: this.damage,
       splashRadius: 0,
       isLaser: true,
       armorPiercing: true,
-      burnDps: 18 + (this.level - 1) * 8,
+      burnDps: 20 + (this.level - 1) * 12,
     };
   }
 }
@@ -375,4 +397,3 @@ export function createTowerByType(
       return new BasicTower(id, row, col, cellSize, boost);
   }
 }
-

@@ -12,7 +12,18 @@ export type PageRoute =
 
 export type DifficultyLevel = 'recruit' | 'standard' | 'veteran' | 'nightmare';
 
-export type EnemyType = 'normal' | 'fast' | 'heavy' | 'armored' | 'boss' | 'flying' | 'dragon' | 'witch';
+export type GraphicsQuality = 'low' | 'medium' | 'high';
+
+export type EnemyType =
+  | 'swarm'
+  | 'normal'
+  | 'fast'
+  | 'heavy'
+  | 'armored'
+  | 'boss'
+  | 'flying'
+  | 'dragon'
+  | 'witch';
 
 export type TowerType = 'basic' | 'sniper' | 'rapid' | 'splash' | 'slow' | 'laser';
 

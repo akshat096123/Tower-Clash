@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, CheckCircle2, RotateCcw, Save, Trash2 } from 'lucide-react';
-import { DifficultyLevel, SortAlgorithmType } from '../types/game';
+import { DifficultyLevel, GraphicsQuality, SortAlgorithmType } from '../types/game';
 import { SORT_LABELS } from '../dsa/sorting';
 
 export interface AppSettings {
@@ -9,6 +9,7 @@ export interface AppSettings {
   benchmarkEngine: 'cpp' | 'ts';
   reducedMotion: boolean;
   showSpatialGrid: boolean;
+  graphicsQuality: GraphicsQuality;
 }
 
 interface SettingsPageProps {
@@ -68,10 +69,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               onChange={(e) => setDraft({ ...draft, defaultDifficulty: e.target.value as DifficultyLevel })}
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
             >
-              <option value="recruit">Recruit (Higher Gold, Slower Waves)</option>
-              <option value="standard">Standard (Balanced)</option>
-              <option value="veteran">Veteran (Tougher Armor &amp; HP)</option>
-              <option value="nightmare">Nightmare (Boss Rush &amp; High Speed)</option>
+              <option value="recruit">Casual / Peasant (0.75x HP, 0.9x Speed, 300 Gold)</option>
+              <option value="standard">Standard / Warrior (1.0x HP, 1.0x Speed, 260 Gold)</option>
+              <option value="veteran">Hard / Knight (1.35x HP, 1.12x Speed, -10% Gold)</option>
+              <option value="nightmare">Extreme / Overlord (1.65x HP, 1.18x Speed, -15% Gold)</option>
             </select>
           </div>
 
@@ -105,6 +106,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             >
               <option value="cpp">Compiled C++17 DSA Binary (Measured Native)</option>
               <option value="ts">TypeScript In-Browser Engine</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="setting-graphics" className="block text-xs font-medium text-slate-300">
+              3D Graphics Quality
+            </label>
+            <select
+              id="setting-graphics"
+              value={draft.graphicsQuality}
+              onChange={(e) => setDraft({ ...draft, graphicsQuality: e.target.value as GraphicsQuality })}
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+            >
+              <option value="low">Low (No Shadows / No Post-FX / Max FPS)</option>
+              <option value="medium">Medium (1024px Shadows + SMAA)</option>
+              <option value="high">High (2048px Soft Shadows + Bloom + SMAA)</option>
             </select>
           </div>
         </div>

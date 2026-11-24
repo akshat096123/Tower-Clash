@@ -3,8 +3,9 @@ import { GameEngine } from '../engine/GameEngine';
 import { GAME_MAPS } from '../engine/maps';
 import { PathFinder } from '../engine/PathFinder';
 import { NormalEnemy } from '../engine/Enemy';
-import { BasicTower } from '../engine/Tower';
+import { BasicTower, LaserTower } from '../engine/Tower';
 import { getTargetingStrategy } from '../engine/TargetingStrategy';
+import { BASE_BOT_HP, computeScaledBotHp, DIFFICULTY_PRESETS, WAVE_HP_EXPONENT } from '../engine/balance';
 import { TowerType } from '../types/game';
 
 describe('Tower Defense OOP Architecture & Gameplay Engine', () => {
@@ -109,5 +110,70 @@ describe('Tower Defense OOP Architecture & Gameplay Engine', () => {
     const out = weakest.selectTarget(tower, [e1, e2], 'counting');
     expect(out.target?.id).toBe(1);
     expect(out.comparisons + out.swaps).toBeGreaterThanOrEqual(0);
+  });
+
+  it('enforces exact wave HP scaling formula, clean slow stacking, and single-claim deaths', () => {
+    const expectedW5Hard = Math.round(BASE_BOT_HP * 1.0 * Math.pow(WAVE_HP_EXPONENT, 4) * DIFFICULTY_PRESETS.veteran.hpMult);
+    expect(computeScaledBotHp(5, 'normal', 'veteran')).toBe(expectedW5Hard);
+    expect(computeScaledBotHp(1, 'normal', 'recruit')).toBe(Math.round(BASE_BOT_HP * 0.75));
+
+    const path = [
+      { row: 0, col: 0 },
+      { row: 0, col: 6 },
+    ];
+    const bot = new NormalEnemy(1, { waveNumber: 1, difficulty: 'standard' }, path, 48);
+    // Slow stacking takes strongest slow instead of multiplying 0.6 * 0.45
+    bot.applySlow(0.6, 2.0);
+    bot.applySlow(0.45, 3.0);
+    expect(bot.currentSpeed).toBeCloseTo(bot.baseSpeed * 0.45, 5);
+
+    // Enemy cannot die twice or award reward twice
+    bot.takeDamage(5000, true);
+    expect(bot.isAlive).toBe(false);
+    expect(bot.claimReward()).toBe(14);
+    expect(bot.claimReward()).toBe(0);
+    expect(bot.takeDamage(100, true)).toBe(0);
+  });
+
+  it('prevents sell+undo gold exploits, honors Lv3 upgrade caps, and matches 1x/3x speed parity', () => {
+    const engine = new GameEngine('circuit-valley', 'standard', 'quick');
+    const map = GAME_MAPS[0];
+    let cell: { row: number; col: number } | null = null;
+    for (let r = 0; r < map.rows && !cell; r++) {
+      for (let c = 0; c < map.cols && !cell; c++) {
+        if (map.grid[r][c] === 'buildable') cell = { row: r, col: c };
+      }
+    }
+    expect(cell).not.toBeNull();
+
+    // Sell removes from undo stack so sell + undo cannot double-refund
+    const startGold = engine.getSnapshot().gold;
+    const p1 = engine.placeTower('basic', cell!.row, cell!.col);
+    expect(p1.ok).toBe(true);
+    engine.sellTower(p1.towerId!);
+    expect(engine.undoLastPlacement()).toBe(false);
+    expect(engine.getSnapshot().gold).toBeLessThan(startGold);
+
+    // LaserTower damage matches displayed stat and caps at Lv.3
+    const laser = new LaserTower(99, 0, 0, 48, false);
+    const dummy = new NormalEnemy(1, 1, [{ row: 0, col: 0 }, { row: 0, col: 5 }], 48);
+    expect(laser.executeAttack(dummy).damage).toBe(laser.damage);
+    expect(laser.upgrade()).toBeGreaterThan(0);
+    expect(laser.upgrade()).toBeGreaterThan(0);
+    expect(laser.canUpgrade()).toBe(false);
+
+    // 1x (300 ticks @ 0.02s = 6s) vs 3x (100 ticks @ 0.02s = 6s) parity
+    const eng1x = new GameEngine('circuit-valley', 'standard', 'quick');
+    const eng3x = new GameEngine('circuit-valley', 'standard', 'quick');
+    eng1x.placeTower('basic', cell!.row, cell!.col);
+    eng3x.placeTower('basic', cell!.row, cell!.col);
+    eng1x.setSpeed(1);
+    eng3x.setSpeed(3);
+    eng1x.startNextWave();
+    eng3x.startNextWave();
+    for (let i = 0; i < 300; i++) eng1x.update(0.02);
+    for (let i = 0; i < 100; i++) eng3x.update(0.02);
+    expect(eng3x.getSnapshot().enemiesDefeated).toBe(eng1x.getSnapshot().enemiesDefeated);
+    expect(eng3x.getSnapshot().gold).toBe(eng1x.getSnapshot().gold);
   });
 });

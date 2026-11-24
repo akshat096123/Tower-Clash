@@ -67,5 +67,6 @@ export function initDatabase(): void {
     INSERT OR IGNORE INTO settings (key, value) VALUES ('benchmarkEngine', 'cpp');
     INSERT OR IGNORE INTO settings (key, value) VALUES ('reducedMotion', 'false');
     INSERT OR IGNORE INTO settings (key, value) VALUES ('showSpatialGrid', 'true');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('graphicsQuality', 'high');
   `);
 }

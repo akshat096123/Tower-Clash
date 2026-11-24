@@ -1,83 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Shield, Skull } from 'lucide-react';
 import { TOWER_CATALOG } from '../engine/Tower';
+import { BASE_BOT_HP, BASE_BOT_SPEED, ENEMY_ARCHETYPES } from '../engine/balance';
 import { Trie } from '../dsa/strings';
 import { HashTable } from '../dsa/hashing';
 
-const ENEMY_CODEX = [
-  {
-    type: 'normal',
-    name: 'Goblin Raider',
-    hp: 95,
-    speed: 72,
-    armor: 2,
-    reward: 14,
-    ability: 'Agile goblin foot soldier advancing quickly with twin daggers.',
-  },
-  {
-    type: 'fast',
-    name: 'Shadow Wolf',
-    hp: 65,
-    speed: 132,
-    armor: 0,
-    reward: 14,
-    ability: 'Extremely high velocity bounding trot; tests rapid crossbow tracking.',
-  },
-  {
-    type: 'heavy',
-    name: 'Stone Golem',
-    hp: 270,
-    speed: 44,
-    armor: 8,
-    reward: 30,
-    ability: 'Massive rock elemental tank requiring heavy Dwarf Mortar or Sorceress focus.',
-  },
-  {
-    type: 'armored',
-    name: 'Orc Vanguard',
-    hp: 185,
-    speed: 56,
-    armor: 18,
-    reward: 28,
-    ability: 'Heavy iron tower shield grants 18 flat armor mitigation against light bolts.',
-  },
-  {
-    type: 'flying',
-    name: 'Winged Gargoyle',
-    hp: 95,
-    speed: 98,
-    armor: 4,
-    reward: 20,
-    ability: 'Airborne flight directly over terrain obstacles and water hazards.',
-  },
-  {
-    type: 'witch',
-    name: 'Shadow Witch',
-    hp: 330,
-    speed: 64,
-    armor: 4,
-    reward: 45,
-    ability: 'Hovering dark sorceress casting bubble shields and haste enchantments on nearby creeps.',
-  },
-  {
-    type: 'dragon',
-    name: 'Ancient Wyvern',
-    hp: 540,
-    speed: 112,
-    armor: 10,
-    reward: 65,
-    ability: 'Flying apex dragon with high HP and fiery resilience that sheds frost slows twice as fast.',
-  },
-  {
-    type: 'boss',
-    name: 'Kernel Overlord',
-    hp: 890,
-    speed: 38,
-    armor: 14,
-    reward: 150,
-    ability: 'Colossal demon warlord alternating between impenetrable Shield Pulse and HP Regeneration.',
-  },
-];
+const ENEMY_CODEX = Object.values(ENEMY_ARCHETYPES).map((spec) => ({
+  type: spec.type,
+  name: spec.name,
+  hp: Math.round(BASE_BOT_HP * spec.hpMult),
+  speed: Math.round(BASE_BOT_SPEED * spec.speedMult),
+  armor: spec.armor,
+  reward: spec.reward,
+  ability: spec.description,
+}));
 
 export const TowerCollection: React.FC = () => {
   const [query, setQuery] = useState('');
