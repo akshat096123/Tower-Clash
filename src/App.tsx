@@ -10,18 +10,20 @@ import { DsaLab } from './pages/DsaLab';
 import { PerformanceAnalysis } from './pages/PerformanceAnalysis';
 import { GameHistory } from './pages/GameHistory';
 import { AppSettings, SettingsPage } from './pages/SettingsPage';
+import {
+  clearLocalTelemetry,
+  DEFAULT_LOCAL_PROFILE,
+  loadLocalProfile,
+  loadLocalSessions,
+  loadLocalSettings,
+  mergeProfiles,
+  mergeSessions,
+  saveLocalProfile,
+  saveLocalSessions,
+  saveLocalSettings,
+} from './utils/sessionStorage';
 
-const DEFAULT_PROFILE: PlayerProfileData = {
-  name: 'Commander',
-  xp: 0,
-  level: 1,
-  games_played: 0,
-  games_won: 0,
-  total_enemies_defeated: 0,
-  highest_wave: 0,
-  total_gold_earned: 0,
-  achievements: [],
-};
+const DEFAULT_PROFILE: PlayerProfileData = DEFAULT_LOCAL_PROFILE;
 
 const DEFAULT_SETTINGS: AppSettings = {
   defaultDifficulty: 'standard',
@@ -35,13 +37,23 @@ const DEFAULT_SETTINGS: AppSettings = {
 export function App() {
   const [route, setRoute] = useState<PageRoute>('home');
   const [selectedMapId, setSelectedMapId] = useState<string>('circuit-valley');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>('standard');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>(
+    () => loadLocalSettings()?.defaultDifficulty ?? 'standard'
+  );
   const [diagramsOpen, setDiagramsOpen] = useState(false);
-  const [profile, setProfile] = useState<PlayerProfileData>(DEFAULT_PROFILE);
-  const [sessions, setSessions] = useState<GameHistoryRecord[]>([]);
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [profile, setProfile] = useState<PlayerProfileData>(
+    () => loadLocalProfile() ?? DEFAULT_PROFILE
+  );
+  const [sessions, setSessions] = useState<GameHistoryRecord[]>(() => loadLocalSessions());
+  const [settings, setSettings] = useState<AppSettings>(
+    () => loadLocalSettings() ?? DEFAULT_SETTINGS
+  );
 
   const loadData = useCallback(async () => {
+    const localSessions = loadLocalSessions();
+    const localProfile = loadLocalProfile();
+    const localSettings = loadLocalSettings();
+
     try {
       const [profRes, sessRes, setRes] = await Promise.all([
         fetch('/api/profile'),
@@ -50,17 +62,27 @@ export function App() {
       ]);
       if (profRes.ok) {
         const p = (await profRes.json()) as PlayerProfileData;
-        setProfile(p);
+        const mergedProfile = mergeProfiles(p, localProfile);
+        saveLocalProfile(mergedProfile);
+        setProfile(mergedProfile);
+      } else if (localProfile) {
+        setProfile(localProfile);
       }
+
       if (sessRes.ok) {
         const s = (await sessRes.json()) as GameHistoryRecord[];
-        setSessions(Array.isArray(s) ? s : []);
+        const merged = mergeSessions(Array.isArray(s) ? s : [], localSessions);
+        saveLocalSessions(merged);
+        setSessions(merged);
+      } else if (localSessions.length > 0) {
+        setSessions(localSessions);
       }
+
       if (setRes.ok) {
         const raw = (await setRes.json()) as Record<string, string>;
-        const diff = (raw.defaultDifficulty as DifficultyLevel) || 'standard';
-        setSelectedDifficulty(diff);
-        setSettings({
+        const diff =
+          localSettings?.defaultDifficulty ?? ((raw.defaultDifficulty as DifficultyLevel) || 'standard');
+        const nextSettings: AppSettings = localSettings ?? {
           defaultDifficulty: diff,
           defaultSortAlgo: (raw.defaultSortAlgo as SortAlgorithmType) || 'quick',
           benchmarkEngine: raw.benchmarkEngine === 'ts' ? 'ts' : 'cpp',
@@ -68,10 +90,13 @@ export function App() {
           showSpatialGrid: raw.showSpatialGrid === 'true',
           graphicsQuality:
             raw.graphicsQuality === 'low' || raw.graphicsQuality === 'medium' ? raw.graphicsQuality : 'high',
-        });
+        };
+        setSelectedDifficulty(nextSettings.defaultDifficulty);
+        setSettings(nextSettings);
+        saveLocalSettings(nextSettings);
       }
     } catch {
-      // Backend might still be starting up
+      // Offline / backend starting up — localStorage state remains intact
     }
   }, []);
 
@@ -82,24 +107,56 @@ export function App() {
   const handleSaveSettings = async (next: AppSettings) => {
     setSettings(next);
     setSelectedDifficulty(next.defaultDifficulty);
-    await fetch('/api/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        defaultDifficulty: next.defaultDifficulty,
-        defaultSortAlgo: next.defaultSortAlgo,
-        benchmarkEngine: next.benchmarkEngine,
-        reducedMotion: String(next.reducedMotion),
-        showSpatialGrid: String(next.showSpatialGrid),
-        graphicsQuality: next.graphicsQuality,
-      }),
-    });
+    saveLocalSettings(next);
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          defaultDifficulty: next.defaultDifficulty,
+          defaultSortAlgo: next.defaultSortAlgo,
+          benchmarkEngine: next.benchmarkEngine,
+          reducedMotion: String(next.reducedMotion),
+          showSpatialGrid: String(next.showSpatialGrid),
+          graphicsQuality: next.graphicsQuality,
+        }),
+      });
+    } catch {
+      // Local settings already saved
+    }
   };
 
   const handleResetAllData = async () => {
-    await fetch('/api/game-sessions', { method: 'DELETE' });
+    clearLocalTelemetry();
+    setSessions([]);
+    setProfile(DEFAULT_PROFILE);
+    try {
+      await fetch('/api/game-sessions', { method: 'DELETE' });
+    } catch {
+      // Local data already cleared
+    }
     await loadData();
   };
+
+  const handleSessionSaved = useCallback(
+    (saved?: { session: GameHistoryRecord; profile?: PlayerProfileData }) => {
+      if (saved?.session) {
+        setSessions((prev) => {
+          const merged = mergeSessions([saved.session], mergeSessions(prev, loadLocalSessions()));
+          saveLocalSessions(merged);
+          return merged;
+        });
+      }
+      if (saved?.profile) {
+        setProfile((prev) => {
+          const merged = mergeProfiles(saved.profile ?? null, prev);
+          saveLocalProfile(merged);
+          return merged;
+        });
+      }
+    },
+    []
+  );
 
   const renderPage = () => {
     switch (route) {
@@ -132,9 +189,7 @@ export function App() {
               void handleSaveSettings({ ...settings, graphicsQuality: q });
             }}
             onExitToTitle={() => setRoute('home')}
-            onSessionSaved={() => {
-              void loadData();
-            }}
+            onSessionSaved={handleSessionSaved}
           />
         );
       case 'maps':

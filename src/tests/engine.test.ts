@@ -7,6 +7,7 @@ import { BasicTower, LaserTower } from '../engine/Tower';
 import { getTargetingStrategy } from '../engine/TargetingStrategy';
 import { BASE_BOT_HP, computeScaledBotHp, DIFFICULTY_PRESETS, WAVE_HP_EXPONENT } from '../engine/balance';
 import { TowerType } from '../types/game';
+import { mergeProfiles, mergeSessions } from '../utils/sessionStorage';
 
 describe('Tower Defense OOP Architecture & Gameplay Engine', () => {
   it('computes valid Dijkstra shortest paths on every battlefield map', () => {
@@ -175,5 +176,74 @@ describe('Tower Defense OOP Architecture & Gameplay Engine', () => {
     for (let i = 0; i < 100; i++) eng3x.update(0.02);
     expect(eng3x.getSnapshot().enemiesDefeated).toBe(eng1x.getSnapshot().enemiesDefeated);
     expect(eng3x.getSnapshot().gold).toBe(eng1x.getSnapshot().gold);
+  });
+
+  it('merges and deduplicates game history & profiles across stateless server cold starts', () => {
+    const localMatch = {
+      id: 1732490000000,
+      map_name: 'Emerald Shire',
+      difficulty: 'standard',
+      victory: true,
+      wave_reached: 12,
+      total_waves: 12,
+      enemies_defeated: 180,
+      gold_earned: 2400,
+      towers_built: 10,
+      base_health_remaining: 72,
+      duration_sec: 195.2,
+      targeting_algo: 'quick',
+      created_at: '2026-11-24T20:45:00.000Z',
+    };
+    const serverCopy = {
+      ...localMatch,
+      id: 1,
+      created_at: '2026-11-24 20:45:01',
+    };
+    const earlierLocalMatch = {
+      ...localMatch,
+      id: 1732480000000,
+      victory: false,
+      wave_reached: 7,
+      created_at: '2026-11-24T18:00:00.000Z',
+    };
+
+    // Server hit cold start returning only serverCopy: keeps earlierLocalMatch and deduplicates serverCopy vs localMatch
+    const merged = mergeSessions([serverCopy], [localMatch, earlierLocalMatch]);
+    expect(merged.length).toBe(2);
+    expect(merged[0].id).toBe(1);
+    expect(merged[1].victory).toBe(false);
+
+    // Server hit completely empty cold start ([]): preserves both locally saved matches
+    const coldMerged = mergeSessions([], [localMatch, earlierLocalMatch]);
+    expect(coldMerged.length).toBe(2);
+
+    const prof = mergeProfiles(
+      {
+        name: 'Commander',
+        xp: 500,
+        level: 3,
+        games_played: 1,
+        games_won: 1,
+        total_enemies_defeated: 180,
+        highest_wave: 12,
+        total_gold_earned: 2400,
+        achievements: ['First Deployment'],
+      },
+      {
+        name: 'Commander',
+        xp: 900,
+        level: 4,
+        games_played: 2,
+        games_won: 1,
+        total_enemies_defeated: 250,
+        highest_wave: 12,
+        total_gold_earned: 3100,
+        achievements: ['Wave Master'],
+      }
+    );
+    expect(prof.games_played).toBe(2);
+    expect(prof.xp).toBe(900);
+    expect(prof.achievements).toContain('First Deployment');
+    expect(prof.achievements).toContain('Wave Master');
   });
 });

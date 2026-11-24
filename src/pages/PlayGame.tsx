@@ -40,6 +40,8 @@ import { GameEngine } from '../engine/GameEngine';
 import { CameraViewMode, GameThreeRenderer } from '../engine/GameThreeRenderer';
 import { TOWER_CATALOG } from '../engine/Tower';
 import { soundFX } from '../engine/soundFx';
+import type { GameHistoryRecord, PlayerProfileData } from './HomeDashboard';
+import { recordMatchLocally } from '../utils/sessionStorage';
 
 interface PlayGameProps {
   initialMapId: string;
@@ -49,7 +51,7 @@ interface PlayGameProps {
   graphicsQuality?: GraphicsQuality;
   onChangeGraphicsQuality?: (quality: GraphicsQuality) => void;
   onExitToTitle?: () => void;
-  onSessionSaved: () => void;
+  onSessionSaved: (saved?: { session: GameHistoryRecord; profile?: PlayerProfileData }) => void;
 }
 
 const TARGETING_OPTIONS: Array<{ value: TargetingStrategyType; label: string; short: string }> = [
@@ -127,6 +129,8 @@ export const PlayGame: React.FC<PlayGameProps> = ({
   const savedEndRef = useRef<boolean>(false);
   const prevKillsRef = useRef<number>(0);
   const prevHpRef = useRef<number>(engineRef.current.getSnapshot().baseHealth);
+  const onSessionSavedRef = useRef(onSessionSaved);
+  onSessionSavedRef.current = onSessionSaved;
   const [hpFlash, setHpFlash] = useState(false);
 
   const resetGame = (newMapId = initialMapId, newDiff = defaultDifficulty) => {
@@ -285,6 +289,25 @@ export const PlayGame: React.FC<PlayGameProps> = ({
         if (endDialogRef.current && !endDialogRef.current.open) {
           endDialogRef.current.showModal();
         }
+
+        const localRecord: GameHistoryRecord = {
+          id: Date.now(),
+          map_name: currentSnap.mapName,
+          difficulty: currentSnap.difficulty,
+          victory: currentSnap.status === 'victory',
+          wave_reached: currentSnap.wave,
+          total_waves: currentSnap.totalWaves,
+          enemies_defeated: currentSnap.enemiesDefeated,
+          gold_earned: currentSnap.goldEarned,
+          towers_built: currentSnap.towers.length,
+          base_health_remaining: currentSnap.baseHealth,
+          duration_sec: currentSnap.elapsedSec,
+          targeting_algo: currentSnap.sortAlgorithm,
+          created_at: new Date().toISOString(),
+        };
+        const localUpdated = recordMatchLocally(localRecord);
+        onSessionSavedRef.current({ session: localRecord, profile: localUpdated.profile });
+
         fetch('/api/game-sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -304,7 +327,16 @@ export const PlayGame: React.FC<PlayGameProps> = ({
             dsaMetrics: currentSnap.dsaStats,
           }),
         })
-          .then(() => onSessionSaved())
+          .then(async (res) => {
+            if (!res.ok) return;
+            const data = (await res.json()) as {
+              session?: GameHistoryRecord;
+              profile?: PlayerProfileData;
+            };
+            if (data.session) {
+              onSessionSavedRef.current({ session: data.session, profile: data.profile });
+            }
+          })
           .catch(() => {});
       }
 
@@ -313,7 +345,7 @@ export const PlayGame: React.FC<PlayGameProps> = ({
 
     rafId = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(rafId);
-  }, [hoverCell, placingType, showSpatialGridDefault, buildPlotCell, onSessionSaved]);
+  }, [hoverCell, placingType, showSpatialGridDefault, buildPlotCell]);
 
   const getCoordsFromMouse = (e: React.MouseEvent<HTMLCanvasElement>): { cell: GridCoord; x: number; y: number } | null => {
     const three = threeRendererRef.current;

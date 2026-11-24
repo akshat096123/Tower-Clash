@@ -119,11 +119,31 @@ apiRouter.post('/game-sessions', (req, res) => {
     JSON.stringify([...existingAchievements])
   );
 
+  const savedSession = db
+    .prepare('SELECT * FROM game_history WHERE id = ?')
+    .get(result.lastInsertRowid) as Record<string, unknown> | undefined;
+  const updatedProfile = db
+    .prepare('SELECT * FROM player_profile WHERE id = 1')
+    .get() as Record<string, unknown> | undefined;
+
   res.status(201).json({
     id: result.lastInsertRowid,
     gainedXp,
     level: newLevel,
     achievements: [...existingAchievements],
+    session: savedSession
+      ? {
+          ...savedSession,
+          victory: Boolean(savedSession.victory),
+          dsaMetrics: JSON.parse(String(savedSession.dsa_metrics_json || '{}')),
+        }
+      : undefined,
+    profile: updatedProfile
+      ? {
+          ...updatedProfile,
+          achievements: JSON.parse(String(updatedProfile.achievements_json || '[]')),
+        }
+      : undefined,
   });
 });
 
